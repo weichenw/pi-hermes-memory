@@ -315,6 +315,16 @@ export class MemoryStore {
     return this.userEntries.map((e) => this.stripMetadata(e));
   }
 
+  /** Total character count for MEMORY.md (including metadata). */
+  getMemoryChars(): number {
+    return this.memoryEntries.reduce((sum, e) => sum + e.length, 0);
+  }
+
+  /** Total character count for USER.md (including metadata). */
+  getUserChars(): number {
+    return this.userEntries.reduce((sum, e) => sum + e.length, 0);
+  }
+
   // ─── Internal helpers ───
 
   /**

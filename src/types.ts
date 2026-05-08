@@ -39,6 +39,8 @@ export interface MemoryConfig {
   sessionSearchEnabled?: boolean;
   /** Days to retain session history. Default: 90 */
   sessionRetentionDays?: number;
+  /** Auto-inject memory into system prompt at session start. Default: true */
+  autoInject?: boolean;
 }
 
 export type MemoryCategory =

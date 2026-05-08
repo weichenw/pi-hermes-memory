@@ -66,29 +66,49 @@ export default function (pi: ExtensionAPI) {
   const projectStore = project.memoryDir ? new MemoryStore(projectConfig) : null;
   const projectName = project.name ?? "";
 
-  // ── 1. Load memory from disk on session start ──
-  pi.on("session_start", async (_event, _ctx) => {
+  // ── 1. Load memory from disk + show startup status ──
+  pi.on("session_start", async (_event, ctx) => {
     await store.loadFromDisk();
     if (projectStore) await projectStore.loadFromDisk();
-  });
 
-  // ── 2. Inject frozen snapshot + skill index + project memory into system prompt ──
-  pi.on("before_agent_start", async (event, _ctx) => {
-    const memoryBlock = store.formatForSystemPrompt();
-    const skillIndex = await skillStore.formatIndexForSystemPrompt();
-    const projectBlock = projectStore ? projectStore.formatProjectBlock(projectName) : "";
+    const memoryChars = store.getMemoryChars();
+    const userChars = store.getUserChars();
+    const memoryTokens = Math.ceil(memoryChars / 4);
+    const userTokens = Math.ceil(userChars / 4);
+    const totalTokens = memoryTokens + userTokens;
 
-    const parts: string[] = [];
-    if (memoryBlock) parts.push(memoryBlock);
-    if (projectBlock) parts.push(projectBlock);
-    if (skillIndex) parts.push(skillIndex);
-
-    if (parts.length > 0) {
-      return {
-        systemPrompt: event.systemPrompt + "\n\n" + parts.join("\n\n"),
-      };
+    if (config.autoInject === false) {
+      ctx.ui?.notify?.(
+        `🧠 Memory loaded · ${totalTokens} tokens on disk · Injection OFF · Use memory_search or /memory-insights`,
+        "info"
+      );
+    } else {
+      ctx.ui?.notify?.(
+        `🧠 Memory injected · ${totalTokens} tokens · Use /memory-insights for details`,
+        "info"
+      );
     }
   });
+
+  // ── 2. Inject frozen snapshot + skill index + project memory into system prompt (optional) ──
+  if (config.autoInject !== false) {
+    pi.on("before_agent_start", async (event, _ctx) => {
+      const memoryBlock = store.formatForSystemPrompt();
+      const skillIndex = await skillStore.formatIndexForSystemPrompt();
+      const projectBlock = projectStore ? projectStore.formatProjectBlock(projectName) : "";
+
+      const parts: string[] = [];
+      if (memoryBlock) parts.push(memoryBlock);
+      if (projectBlock) parts.push(projectBlock);
+      if (skillIndex) parts.push(skillIndex);
+
+      if (parts.length > 0) {
+        return {
+          systemPrompt: event.systemPrompt + "\n\n" + parts.join("\n\n"),
+        };
+      }
+    });
+  }
 
   // ── 3. Register the memory tool (with project store) ──
   registerMemoryTool(pi, store, projectStore);

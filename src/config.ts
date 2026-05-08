@@ -28,6 +28,7 @@ const DEFAULT_CONFIG: MemoryConfig = {
   failureInjectionMaxAgeDays: DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS,
   failureInjectionMaxEntries: DEFAULT_FAILURE_INJECTION_MAX_ENTRIES,
   nudgeToolCalls: DEFAULT_NUDGE_TOOL_CALLS,
+  autoInject: true,
 };
 
 export const DEFAULT_CONFIG_PATH = path.join(
@@ -37,32 +38,60 @@ export const DEFAULT_CONFIG_PATH = path.join(
   "hermes-memory-config.json",
 );
 
+export const SETTINGS_CONFIG_PATH = path.join(
+  os.homedir(),
+  ".pi",
+  "agent",
+  "settings.json",
+);
+
+function mergeConfig(base: MemoryConfig, parsed: Record<string, unknown>): MemoryConfig {
+  const config: MemoryConfig = { ...base };
+  if (typeof parsed.memoryCharLimit === "number") config.memoryCharLimit = parsed.memoryCharLimit;
+  if (typeof parsed.userCharLimit === "number") config.userCharLimit = parsed.userCharLimit;
+  if (typeof parsed.nudgeInterval === "number") config.nudgeInterval = parsed.nudgeInterval;
+  if (typeof parsed.reviewEnabled === "boolean") config.reviewEnabled = parsed.reviewEnabled;
+  if (typeof parsed.flushOnCompact === "boolean") config.flushOnCompact = parsed.flushOnCompact;
+  if (typeof parsed.flushOnShutdown === "boolean") config.flushOnShutdown = parsed.flushOnShutdown;
+  if (typeof parsed.flushMinTurns === "number") config.flushMinTurns = parsed.flushMinTurns;
+  if (typeof parsed.autoConsolidate === "boolean") config.autoConsolidate = parsed.autoConsolidate;
+  if (typeof parsed.correctionDetection === "boolean") config.correctionDetection = parsed.correctionDetection;
+  if (typeof parsed.failureInjectionEnabled === "boolean") config.failureInjectionEnabled = parsed.failureInjectionEnabled;
+  if (typeof parsed.failureInjectionMaxAgeDays === "number") config.failureInjectionMaxAgeDays = parsed.failureInjectionMaxAgeDays;
+  if (typeof parsed.failureInjectionMaxEntries === "number") config.failureInjectionMaxEntries = parsed.failureInjectionMaxEntries;
+  if (typeof parsed.nudgeToolCalls === "number") config.nudgeToolCalls = parsed.nudgeToolCalls;
+  if (typeof parsed.projectCharLimit === "number") config.projectCharLimit = parsed.projectCharLimit;
+  if (typeof parsed.memoryDir === "string") config.memoryDir = parsed.memoryDir;
+  if (typeof parsed.autoInject === "boolean") config.autoInject = parsed.autoInject;
+  return config;
+}
+
 export function loadConfig(): MemoryConfig {
+  let config: MemoryConfig = { ...DEFAULT_CONFIG };
+
+  // 1. Try .pi/agent/settings.json (highest priority)
+  try {
+    if (fs.existsSync(SETTINGS_CONFIG_PATH)) {
+      const raw = fs.readFileSync(SETTINGS_CONFIG_PATH, "utf-8");
+      const settings = JSON.parse(raw) as Record<string, unknown>;
+      if (settings.hermesMemory && typeof settings.hermesMemory === "object") {
+        config = mergeConfig(config, settings.hermesMemory as Record<string, unknown>);
+      }
+    }
+  } catch {
+    // Ignore parse errors
+  }
+
+  // 2. Fallback / override via dedicated config file
   try {
     if (fs.existsSync(DEFAULT_CONFIG_PATH)) {
       const raw = fs.readFileSync(DEFAULT_CONFIG_PATH, "utf-8");
-      const parsed = JSON.parse(raw);
-      // Merge: override defaults with user config
-      const config: MemoryConfig = { ...DEFAULT_CONFIG };
-      if (typeof parsed.memoryCharLimit === "number") config.memoryCharLimit = parsed.memoryCharLimit;
-      if (typeof parsed.userCharLimit === "number") config.userCharLimit = parsed.userCharLimit;
-      if (typeof parsed.nudgeInterval === "number") config.nudgeInterval = parsed.nudgeInterval;
-      if (typeof parsed.reviewEnabled === "boolean") config.reviewEnabled = parsed.reviewEnabled;
-      if (typeof parsed.flushOnCompact === "boolean") config.flushOnCompact = parsed.flushOnCompact;
-      if (typeof parsed.flushOnShutdown === "boolean") config.flushOnShutdown = parsed.flushOnShutdown;
-      if (typeof parsed.flushMinTurns === "number") config.flushMinTurns = parsed.flushMinTurns;
-      if (typeof parsed.autoConsolidate === "boolean") config.autoConsolidate = parsed.autoConsolidate;
-      if (typeof parsed.correctionDetection === "boolean") config.correctionDetection = parsed.correctionDetection;
-      if (typeof parsed.failureInjectionEnabled === "boolean") config.failureInjectionEnabled = parsed.failureInjectionEnabled;
-      if (typeof parsed.failureInjectionMaxAgeDays === "number") config.failureInjectionMaxAgeDays = parsed.failureInjectionMaxAgeDays;
-      if (typeof parsed.failureInjectionMaxEntries === "number") config.failureInjectionMaxEntries = parsed.failureInjectionMaxEntries;
-      if (typeof parsed.nudgeToolCalls === "number") config.nudgeToolCalls = parsed.nudgeToolCalls;
-      if (typeof parsed.projectCharLimit === "number") config.projectCharLimit = parsed.projectCharLimit;
-      if (typeof parsed.memoryDir === "string") config.memoryDir = parsed.memoryDir;
-      return config;
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      config = mergeConfig(config, parsed);
     }
   } catch {
-    // Fall back to defaults on parse error or access issues
+    // Fall back to current merged config
   }
-  return { ...DEFAULT_CONFIG };
+
+  return config;
 }
