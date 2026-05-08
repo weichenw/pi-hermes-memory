@@ -27,8 +27,6 @@ export function registerInsightsCommand(pi: ExtensionAPI, store: MemoryStore, pr
       lines.push("  ╔══════════════════════════════════════════════╗");
       lines.push("  ║            🧠 Memory Insights                ║");
       lines.push("  ╚══════════════════════════════════════════════╝");
-      lines.push(`  📊 ${totalTokens} tokens (~${totalChars} chars)`);
-      lines.push("");
 
       // Memory section
       lines.push("  📋 MEMORY (your personal notes)");
@@ -79,6 +77,8 @@ export function registerInsightsCommand(pi: ExtensionAPI, store: MemoryStore, pr
         }
         lines.push("");
       }
+
+      lines.push(`  📊 ${totalTokens} tokens (~${totalChars} chars)`);
 
       ctx.ui.notify(lines.join("\n"), "info");
     },
