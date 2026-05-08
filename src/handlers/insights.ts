@@ -23,10 +23,10 @@ export function registerInsightsCommand(pi: ExtensionAPI, store: MemoryStore, pr
 
       const lines: string[] = [];
       lines.push("");
-      lines.push("  ╔══════════════════════════════════════════════╗");
-      lines.push("  ║            🧠 Memory Insights                ║");
-      lines.push(`  ║        ${totalTokens} tokens total (~${totalTokens * 4} chars)           ║`);
-      lines.push("  ╚══════════════════════════════════════════════╝");
+      lines.push("  ╔════════════════════════════════════════════════════╗");
+      lines.push("  ║          🧠 Memory Insights                      ║");
+      lines.push(`  ║       ${totalTokens} tokens (~${totalTokens * 4} chars)                     ║`);
+      lines.push("  ╚════════════════════════════════════════════════════╝");
       lines.push("");
 
       // Memory section
