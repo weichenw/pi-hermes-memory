@@ -14,7 +14,7 @@ export function registerSkillsCommand(pi: ExtensionAPI, store: SkillStore): void
       const lines: string[] = [];
       lines.push("");
       lines.push("  ╔══════════════════════════════════════════════╗");
-      lines.push("  ║            🧠 Procedural Skills             ║");
+      lines.push("  ║             🧠 Procedural Skills             ║");
       lines.push("  ╚══════════════════════════════════════════════╝");
 
       if (skills.length === 0) {
