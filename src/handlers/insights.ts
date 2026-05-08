@@ -20,13 +20,14 @@ export function registerInsightsCommand(pi: ExtensionAPI, store: MemoryStore, pr
       const userTokens = Math.ceil(userChars / 4);
       const projectTokens = Math.ceil(projectChars / 4);
       const totalTokens = memoryTokens + userTokens + projectTokens;
+      const totalChars = memoryChars + userChars + projectChars;
 
       const lines: string[] = [];
       lines.push("");
-      lines.push("  ╔════════════════════════════════════════════════════╗");
-      lines.push("  ║          🧠 Memory Insights                      ║");
-      lines.push(`  ║       ${totalTokens} tokens (~${totalTokens * 4} chars)                     ║`);
-      lines.push("  ╚════════════════════════════════════════════════════╝");
+      lines.push("  ╔══════════════════════════════════════════════╗");
+      lines.push("  ║            🧠 Memory Insights                ║");
+      lines.push("  ╚══════════════════════════════════════════════╝");
+      lines.push(`  📊 ${totalTokens} tokens (~${totalChars} chars)`);
       lines.push("");
 
       // Memory section
