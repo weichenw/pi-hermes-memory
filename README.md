@@ -50,6 +50,8 @@ pi install npm:pi-hermes-memory
 | 🏗️ **Two-Tier Memory** | Global + per-project memory, both searchable |
 | 💾 **Extended Store** | Unlimited searchable memories beyond core 5,000-char limit |
 | 🎓 **Onboarding** | `/memory-interview` pre-fills your profile on first session |
+| 💤 **Zero-injection mode** | `autoInject: false` saves context tokens — search on demand instead |
+| 📊 **Token counts** | `/memory-insights` and `/memory-skills` show estimated token costs |
 
 ## How It Works
 
@@ -137,6 +139,25 @@ System Prompt
 │ </memory-context>                       │
 └─────────────────────────────────────────┘
 ```
+
+## Zero-Injection Mode
+
+By default, memory is injected into every session's system prompt. If you prefer to save context tokens or work on varied projects, disable auto-injection:
+
+```json
+{
+  "hermesMemory": {
+    "autoInject": false
+  }
+}
+```
+
+With `autoInject: false`:
+- ✅ Memory is still saved during sessions
+- ✅ Background learning, correction detection, and consolidation still run
+- ✅ `memory_search` and `session_search` work on demand
+- ❌ Nothing is injected into the system prompt at startup
+- 🧠 Startup shows: "Memory loaded · 1163 tokens on disk · Injection OFF"
 
 ## Failure Memory
 
@@ -330,6 +351,8 @@ This means skills build up naturally over time without you having to ask.
 1. name: Chandrateja
 2. prefers concise answers over verbose ones
 3. codes primarily in TypeScript
+
+📊 1163 tokens (~4648 chars)
 ```
 
 ### `/memory-skills` Output
@@ -339,13 +362,15 @@ This means skills build up naturally over time without you having to ask.
 ║            🧠 Procedural Skills             ║
 ╚══════════════════════════════════════════════╝
 
-📄 debug-typescript-errors
+📄 debug-typescript-errors · 42 tokens (~168 chars)
    Step-by-step approach to debugging TS errors in monorepos
    file: debug-typescript-errors.md
 
-📄 deploy-checklist
+📄 deploy-checklist · 28 tokens (~112 chars)
    Pre-deploy verification steps for this project
    file: deploy-checklist.md
+
+📊 70 tokens total
 ```
 
 ## Configuration
@@ -389,6 +414,24 @@ Create `~/.pi/agent/hermes-memory-config.json`:
 | `flushOnCompact` | `true` | Flush memories before Pi compacts context |
 | `flushOnShutdown` | `true` | Flush memories when session ends |
 | `flushMinTurns` | `6` | Minimum turns before flush triggers |
+| `autoInject` | `true` | Inject memory into system prompt on every session start |
+| `sessionSearchEnabled` | `true` | Enable session history search via SQLite FTS5 |
+| `sessionRetentionDays` | `90` | Days to retain session history |
+
+### Config via `settings.json`
+
+You can also put config under the `hermesMemory` key in `~/.pi/agent/settings.json` (highest priority) or project-local `.pi/settings.json`:
+
+```json
+{
+  "hermesMemory": {
+    "autoInject": false,
+    "memoryCharLimit": 3000
+  }
+}
+```
+
+Settings cascade: `settings.json` → `hermes-memory-config.json` → built-in defaults.
 
 ## Where Data Lives
 
