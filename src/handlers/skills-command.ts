@@ -2,7 +2,7 @@
  * Skills command — /memory-skills lists all agent-created skills.
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { SkillStore } from "../store/skill-store.js";
 
 export function registerSkillsCommand(pi: ExtensionAPI, store: SkillStore): void {

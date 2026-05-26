@@ -2,7 +2,7 @@
  * Learn memory tool command — /learn-memory-tool teaches users about the memory system.
  */
 
-import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
 export function registerLearnMemoryCommand(pi: ExtensionAPI): void {
   pi.registerCommand("learn-memory-tool", {

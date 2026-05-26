@@ -8,7 +8,7 @@ import { describe, it } from "node:test";
 import * as assert from "node:assert/strict";
 import { registerMemoryTool } from "../../src/tools/memory-tool.js";
 import { MemoryStore } from "../../src/store/memory-store.js";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 describe("registerMemoryTool", () => {
   it("registers tool with name 'memory' and correct parameters", () => {

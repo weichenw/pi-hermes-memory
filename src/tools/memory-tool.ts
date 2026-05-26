@@ -4,14 +4,75 @@
  * See PLAN.md → "Hermes Source File Reference Map" for source lines.
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { StringEnum } from "@mariozechner/pi-ai";
+import { StringEnum } from "@earendil-works/pi-ai";
 import { MemoryStore } from "../store/memory-store.js";
+import { DatabaseManager } from "../store/db.js";
+import { addMemory } from "../store/sqlite-memory-store.js";
 import { MEMORY_TOOL_DESCRIPTION } from "../constants.js";
 import type { MemoryCategory } from "../types.js";
 
-export function registerMemoryTool(pi: ExtensionAPI, store: MemoryStore, projectStore: MemoryStore | null): void {
+/**
+ * Extract content-bearing keywords from text for domain matching.
+ * Filters out common stop words and short tokens.
+ */
+function extractKeywords(text: string): string[] {
+  const stopWords = new Set([
+    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "could",
+    "should", "may", "might", "must", "shall", "can", "need", "to", "of",
+    "in", "for", "on", "with", "at", "by", "from", "as", "into", "through",
+    "during", "before", "after", "above", "below", "between", "under",
+    "again", "further", "then", "once", "here", "there", "when", "where",
+    "why", "how", "all", "any", "both", "each", "few", "more", "most",
+    "other", "some", "such", "no", "nor", "not", "only", "own", "same",
+    "so", "than", "too", "very", "just", "and", "but", "if", "or",
+    "because", "until", "while",
+  ]);
+  return [...new Set(text.toLowerCase().split(/\W+/).filter((w) => w.length > 2 && !stopWords.has(w)))];
+}
+
+/**
+ * Infer the best-matching domain from content.
+ * Uses the provided keyword map first; falls back to matching the domain name itself.
+ * Returns the domain with the highest keyword overlap, or undefined if no match.
+ */
+function inferDomain(
+  content: string,
+  domains: string[],
+  keywordMap: Record<string, string[]>,
+): string | undefined {
+  if (!domains.length) return undefined;
+  const words = new Set(extractKeywords(content));
+  let best: string | undefined;
+  let bestScore = 0;
+
+  for (const d of domains) {
+    // Use configured keywords for this domain if available, else fall back to domain name words
+    const keywords = keywordMap[d] ?? d.toLowerCase().split(/\W+/).filter((w) => w.length > 1);
+    const score = keywords.reduce((sum, kw) => sum + (words.has(kw.toLowerCase()) ? 1 : 0), 0);
+    // Normalize by keyword count so longer keyword lists don't automatically win
+    const normalized = score / Math.max(1, keywords.length);
+    if (normalized > bestScore) {
+      bestScore = normalized;
+      best = d;
+    }
+  }
+
+  // Require at least one keyword match to assign a domain
+  return bestScore > 0 ? best : undefined;
+}
+
+export function registerMemoryTool(
+  pi: ExtensionAPI,
+  store: MemoryStore,
+  projectStore: MemoryStore | null,
+  dbManager: DatabaseManager,
+  projectName: string,
+  memoryDomains: string[] = [],
+  memoryDomainKeywords: Record<string, string[]> = {},
+): void {
   pi.registerTool({
     name: "memory",
     label: "Memory",
@@ -23,6 +84,7 @@ export function registerMemoryTool(pi: ExtensionAPI, store: MemoryStore, project
       "Use the memory tool when you discover environment facts, project conventions, or reusable patterns useful in future sessions.",
       "Do NOT use memory for temporary task state, TODO items, or session progress — only for durable, cross-session facts.",
       "Use target='failure' with category to save what didn't work (failures, corrections, insights).",
+      "Domain tags are auto-inferred from content. Only set domain explicitly if the auto-detected tag would be wrong.",
     ],
     parameters: Type.Object({
       action: StringEnum(["add", "replace", "remove"] as const),
@@ -44,9 +106,18 @@ export function registerMemoryTool(pi: ExtensionAPI, store: MemoryStore, project
       failure_reason: Type.Optional(
         Type.String({ description: "Why it failed (for failure category)" })
       ),
+      domain: Type.Optional(
+        Type.String({ description: "Domain tag for this memory (e.g., finance, health, work). Auto-inferred from content if omitted." })
+      ),
     }),
     async execute(toolCallId, params, signal, onUpdate, ctx) {
-      const { action, target: rawTarget, content, old_text, category, failure_reason } = params;
+      const { action, target: rawTarget, content, old_text, category, failure_reason, domain: explicitDomain } = params;
+
+      // Auto-infer domain when not explicitly provided
+      let domain = explicitDomain;
+      if (!domain && content && memoryDomains.length > 0) {
+        domain = inferDomain(content, memoryDomains, memoryDomainKeywords);
+      }
 
       // Route 'project' to projectStore (internal target 'memory')
       const target = rawTarget as "memory" | "user" | "failure";
@@ -86,8 +157,21 @@ export function registerMemoryTool(pi: ExtensionAPI, store: MemoryStore, project
               category: memoryCategory,
               failureReason: failure_reason,
             });
+            if (result.success) {
+              try {
+                addMemory(dbManager, content, "failure", domain || null, memoryCategory, failure_reason || null, null, null);
+              } catch { /* Best-effort SQLite mirror */ }
+            }
           } else {
-            result = await store_.add(target, content);
+            result = await store_.add(target, content, { domain });
+            if (domain && (result as any).success) {
+              (result as any).message = ((result as any).message || "Entry added.") + ` (domain=${domain})`;
+            }
+            if (result.success) {
+              try {
+                addMemory(dbManager, content, target, rawTarget === "project" ? projectName : (domain || null), category as MemoryCategory || null, failure_reason || null, null, null);
+              } catch { /* Best-effort SQLite mirror */ }
+            }
           }
           break;
 

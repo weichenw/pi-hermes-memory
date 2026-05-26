@@ -1,52 +1,76 @@
 /**
- * Index sessions command — /memory-index-sessions imports past sessions into SQLite.
+ * Index sessions command — /memory-index-sessions syncs disk sessions with SQLite.
+ *
+ * Performs three operations:
+ * 1. Indexes new sessions from disk (not yet in DB)
+ * 2. Removes orphaned sessions (in DB but no file on disk)
+ * 3. Prunes sessions older than the retention threshold
  */
 
-import path from 'node:path';
-import fs from 'node:fs';
-import os from 'node:os';
-import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
-import { DatabaseManager } from '../store/db.js';
-import { indexAllSessions, getSessionStats } from '../store/session-indexer.js';
+import path from "node:path";
+import fs from "node:fs";
+import os from "node:os";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { DatabaseManager } from "../store/db.js";
+import { getSessionStats } from "../store/session-indexer.js";
+import { syncAllSessions } from "../store/session-sync.js";
+import { loadConfig } from "../config.js";
 
-const SESSIONS_DIR = path.join(os.homedir(), '.pi', 'agent', 'sessions');
+const SESSIONS_DIR = path.join(os.homedir(), ".pi", "agent", "sessions");
 
 export function registerIndexSessionsCommand(pi: ExtensionAPI): void {
   pi.registerCommand("memory-index-sessions", {
-    description: "Import past Pi sessions into the search database",
+    description:
+      "Sync past Pi sessions with the search database (index new, remove orphaned, prune old)",
     handler: async (_args, ctx: ExtensionCommandContext) => {
       // Show initial progress
-      ctx.ui.notify('🔍 Scanning session directories...', 'info');
+      ctx.ui.notify("🔍 Scanning session directories...", "info");
 
       try {
         // Count sessions first for progress display
         let totalFiles = 0;
         let projectDirs: string[] = [];
         if (fs.existsSync(SESSIONS_DIR)) {
-          projectDirs = fs.readdirSync(SESSIONS_DIR)
-            .filter(d => fs.statSync(path.join(SESSIONS_DIR, d)).isDirectory());
+          projectDirs = fs
+            .readdirSync(SESSIONS_DIR)
+            .filter((d) => fs.statSync(path.join(SESSIONS_DIR, d)).isDirectory());
           for (const dir of projectDirs) {
-            const files = fs.readdirSync(path.join(SESSIONS_DIR, dir))
-              .filter(f => f.endsWith('.jsonl'));
+            const files = fs
+              .readdirSync(path.join(SESSIONS_DIR, dir))
+              .filter((f) => f.endsWith(".jsonl"));
             totalFiles += files.length;
           }
         }
 
-        ctx.ui.notify(`📁 Found ${totalFiles} session files across ${projectDirs.length} projects\n⏳ Indexing...`, 'info');
+        ctx.ui.notify(
+          `📁 Found ${totalFiles} session files across ${projectDirs.length} projects\n⏳ Syncing...`,
+          "info",
+        );
 
-        const memoryDir = path.join(os.homedir(), '.pi', 'agent', 'memory');
+        const config = loadConfig();
+        const memoryDir = path.join(os.homedir(), ".pi", "agent", "memory");
         const dbManager = new DatabaseManager(memoryDir);
 
         try {
-          const result = indexAllSessions(dbManager, SESSIONS_DIR);
+          const result = syncAllSessions(dbManager, SESSIONS_DIR, {
+            retentionDays: config.sessionRetentionDays,
+            memoryRetentionDays: config.memoryRetentionDays,
+          });
           const stats = getSessionStats(dbManager);
 
-          let output = `\n✅ Session indexing complete!\n\n`;
-          output += `📊 Results:\n`;
-          output += `├─ Sessions processed: ${result.sessionsProcessed}\n`;
-          output += `├─ Sessions indexed: ${result.sessionsIndexed}\n`;
-          output += `├─ Sessions skipped (already indexed): ${result.sessionsSkipped}\n`;
-          output += `└─ Messages indexed: ${result.messagesIndexed}\n`;
+          let output = `\n✅ Session sync complete!\n\n`;
+          output += `📊 Changes:\n`;
+          if (result.indexed > 0)
+            output += `├─ Sessions indexed: ${result.indexed}\n`;
+          if (result.skipped > 0)
+            output += `├─ Sessions skipped: ${result.skipped}\n`;
+          if (result.orphanedDeleted > 0)
+            output += `├─ Orphaned sessions removed: ${result.orphanedDeleted}\n`;
+          if (result.oldDeleted > 0)
+            output += `├─ Old sessions pruned (retention=${config.sessionRetentionDays}d): ${result.oldDeleted}\n`;
+          if (result.memoriesDeleted > 0)
+            output += `├─ Old memories pruned (retention=${config.memoryRetentionDays}d): ${result.memoriesDeleted}\n`;
+          output += `└─ Total in DB: ${stats.totalSessions} sessions, ${stats.totalMessages} messages\n`;
 
           if (stats.projects.length > 0) {
             output += `\n📁 Projects indexed:\n`;
@@ -54,12 +78,6 @@ export function registerIndexSessionsCommand(pi: ExtensionAPI): void {
               output += `├─ ${p.project}: ${p.sessions} sessions, ${p.messages} messages\n`;
             }
           }
-
-          // Show totals
-          output += `\n📈 Database totals:\n`;
-          output += `├─ ${stats.totalSessions} sessions\n`;
-          output += `├─ ${stats.totalMessages} messages\n`;
-          output += `└─ ${stats.projects.length} projects\n`;
 
           if (result.errors.length > 0) {
             output += `\n⚠️ Errors (${result.errors.length}):\n`;
@@ -73,12 +91,15 @@ export function registerIndexSessionsCommand(pi: ExtensionAPI): void {
 
           output += `\n💡 Use the session_search tool to search across indexed sessions.`;
 
-          ctx.ui.notify(output, 'info');
+          ctx.ui.notify(output, "info");
         } finally {
           dbManager.close();
         }
       } catch (err) {
-        ctx.ui.notify(`❌ Session indexing failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
+        ctx.ui.notify(
+          `❌ Session sync failed: ${err instanceof Error ? err.message : String(err)}`,
+          "error",
+        );
       }
     },
   });

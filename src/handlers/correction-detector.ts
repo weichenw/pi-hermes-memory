@@ -8,8 +8,10 @@
  * - Negative patterns: suppress even if a positive pattern matched
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { MemoryStore } from "../store/memory-store.js";
+import { DatabaseManager } from "../store/db.js";
+import { addMemory } from "../store/sqlite-memory-store.js";
 import {
   CORRECTION_SAVE_PROMPT,
   CORRECTION_STRONG_PATTERNS,
@@ -71,6 +73,7 @@ export function setupCorrectionDetector(
   pi: ExtensionAPI,
   store: MemoryStore,
   projectStore: MemoryStore | null,
+  dbManager: DatabaseManager,
   config: MemoryConfig,
 ): void {
   if (!config.correctionDetection) return;
@@ -172,6 +175,10 @@ export function setupCorrectionDetector(
             failureReason: "User corrected the agent",
             project: projectStore ? "project" : undefined,
           });
+          // Mirror to SQLite
+          try {
+            addMemory(dbManager, directive, "failure", projectStore ? "project" : null, "correction", "User corrected the agent", null, null);
+          } catch { /* Best-effort SQLite mirror */ }
         }
       } catch {
         // Best-effort — don't block the session

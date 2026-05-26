@@ -15,6 +15,8 @@ import {
   DEFAULT_MEMORY_DOMAINS,
   DEFAULT_MEMORY_DOMAIN_KEYWORDS,
   DEFAULT_CONSOLIDATION_TIMEOUT_MS,
+  DEFAULT_SESSION_RETENTION_DAYS,
+  DEFAULT_MEMORY_RETENTION_DAYS,
 } from "./constants.js";
 
 import { normalizeConfiguredMemoryDir } from "./paths.js";
@@ -39,6 +41,8 @@ const DEFAULT_CONFIG: MemoryConfig = {
   memoryDomains: DEFAULT_MEMORY_DOMAINS,
   memoryDomainKeywords: { ...DEFAULT_MEMORY_DOMAIN_KEYWORDS },
   consolidationTimeoutMs: DEFAULT_CONSOLIDATION_TIMEOUT_MS,
+  sessionRetentionDays: DEFAULT_SESSION_RETENTION_DAYS,
+  memoryRetentionDays: DEFAULT_MEMORY_RETENTION_DAYS,
 };
 
 export const DEFAULT_CONFIG_PATH = path.join(
@@ -72,6 +76,8 @@ function mergeConfig(base: MemoryConfig, parsed: Record<string, unknown>): Memor
   if (typeof parsed.nudgeToolCalls === "number") config.nudgeToolCalls = parsed.nudgeToolCalls;
   if (typeof parsed.projectCharLimit === "number") config.projectCharLimit = parsed.projectCharLimit;
   if (typeof parsed.consolidationTimeoutMs === "number") config.consolidationTimeoutMs = parsed.consolidationTimeoutMs;
+  if (typeof parsed.sessionRetentionDays === "number") config.sessionRetentionDays = parsed.sessionRetentionDays;
+  if (typeof parsed.memoryRetentionDays === "number") config.memoryRetentionDays = parsed.memoryRetentionDays;
   if (typeof parsed.memoryDir === "string") {
     const normalizedMemoryDir = normalizeConfiguredMemoryDir(parsed.memoryDir);
     if (normalizedMemoryDir) config.memoryDir = normalizedMemoryDir;

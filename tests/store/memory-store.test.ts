@@ -440,21 +440,21 @@ describe("MemoryStore", { concurrency: 1 }, () => {
   // ─── formatForSystemPrompt() tests ───
 
   describe("formatForSystemPrompt()", () => {
-    it("returns frozen snapshot — add after load does not change it", async () => {
+    it("returns ranked selection — newer/higher-scored entries appear first", async () => {
       await writeRaw(memoryPath, `${TEST_MARKER} original note`);
 
       const store = new MemoryStore(makeConfig());
       await store.loadFromDisk();
 
-      const before = store.formatForSystemPrompt();
+      const before = await store.formatForSystemPrompt();
       assert.ok(before.includes(`${TEST_MARKER} original note`));
 
-      // Add a new entry — this should NOT affect the snapshot
+      // Add a new entry — this CAN affect the prompt since we use dynamic scoring
       await store.add("memory", `${TEST_MARKER} new note after load`);
+      await settle();
 
-      const after = store.formatForSystemPrompt();
-      assert.equal(before, after, "Snapshot should not change after add");
-      assert.ok(!after.includes(`${TEST_MARKER} new note after load`));
+      const after = await store.formatForSystemPrompt();
+      assert.ok(after.includes(`${TEST_MARKER} new note after load`), "Dynamic selection should include new entry");
     });
 
     it("returns empty string when no entries", async () => {
@@ -462,7 +462,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const store = new MemoryStore(makeConfig());
       await store.loadFromDisk();
 
-      const result = store.formatForSystemPrompt();
+      const result = await store.formatForSystemPrompt();
       assert.equal(result, "");
     });
 
@@ -479,7 +479,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const store = new MemoryStore(makeConfig());
       await store.loadFromDisk();
 
-      const result = store.formatForSystemPrompt();
+      const result = await store.formatForSystemPrompt();
       assert.ok(result.includes("RECENT FAILURES & LESSONS"));
       assert.ok(result.includes(`${TEST_MARKER} failure 1`));
       assert.ok(result.includes(`${TEST_MARKER} failure 5`));
@@ -493,7 +493,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const store = new MemoryStore(makeConfig({ failureInjectionEnabled: false }));
       await store.loadFromDisk();
 
-      const result = store.formatForSystemPrompt();
+      const result = await store.formatForSystemPrompt();
       assert.ok(result.includes(`${TEST_MARKER} regular memory`));
       assert.ok(!result.includes("RECENT FAILURES & LESSONS"));
       assert.ok(!result.includes(`${TEST_MARKER} disabled failure`));
@@ -509,7 +509,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const store = new MemoryStore(makeConfig({ failureInjectionMaxEntries: 2 }));
       await store.loadFromDisk();
 
-      const result = store.formatForSystemPrompt();
+      const result = await store.formatForSystemPrompt();
       assert.ok(result.includes(`${TEST_MARKER} max entry 1`));
       assert.ok(result.includes(`${TEST_MARKER} max entry 2`));
       assert.ok(!result.includes(`${TEST_MARKER} max entry 3`));
@@ -524,7 +524,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const store = new MemoryStore(makeConfig({ failureInjectionMaxAgeDays: 2 }));
       await store.loadFromDisk();
 
-      const result = store.formatForSystemPrompt();
+      const result = await store.formatForSystemPrompt();
       assert.ok(result.includes(`${TEST_MARKER} recent failure`));
       assert.ok(!result.includes(`${TEST_MARKER} old failure`));
     });
@@ -536,7 +536,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const store = new MemoryStore(makeConfig());
       await store.loadFromDisk();
 
-      const result = store.formatForSystemPrompt();
+      const result = await store.formatForSystemPrompt();
       // Content should be present inside fenced blocks
       assert.ok(result.includes("<memory-context>"), "should use context fencing");
       assert.ok(result.includes("PERSISTENT MEMORY"), "should have guard note");

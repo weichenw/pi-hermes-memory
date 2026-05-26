@@ -1,8 +1,8 @@
 /**
  * Integration tests for system prompt injection behavior.
  *
- * Tests the frozen snapshot mechanism: MemoryStore.formatForSystemPrompt()
- * returns the state captured at loadFromDisk() time, not current in-memory state.
+ * Tests the ranked selection mechanism: MemoryStore.formatForSystemPrompt()
+ * dynamically scores and selects the most relevant entries for injection.
  * Also validates the block format (separator, header, usage percentage).
  */
 import * as fs from "node:fs/promises";
@@ -68,7 +68,7 @@ describe("system prompt injection", () => {
     const store = new MemoryStore(testConfig());
     await store.loadFromDisk();
 
-    const prompt = store.formatForSystemPrompt();
+    const prompt = await store.formatForSystemPrompt();
     assert.ok(prompt.length > 0, "formatForSystemPrompt should return non-empty string when memory has entries");
 
     await clearFiles();
@@ -82,7 +82,7 @@ describe("system prompt injection", () => {
     const store = new MemoryStore(testConfig());
     await store.loadFromDisk();
 
-    const prompt = store.formatForSystemPrompt();
+    const prompt = await store.formatForSystemPrompt();
 
     assert.match(prompt, /MEMORY \(your personal notes\)/, "should contain MEMORY header");
     assert.match(prompt, /\d+% — \d+\/\d+ chars/, "should contain usage percentage and char count");
@@ -90,29 +90,29 @@ describe("system prompt injection", () => {
     await clearFiles();
   });
 
-  it("frozen snapshot isolation — entries added after load are NOT in system prompt", async () => {
+  it("dynamic selection — entries added after load CAN appear in system prompt", async () => {
     await writeMemory("Original entry");
     await writeUser("");
 
     const store = new MemoryStore(testConfig());
     await store.loadFromDisk();
 
-    const prompt1 = store.formatForSystemPrompt();
-    assert.ok(prompt1.includes("Original entry"), "snapshot should contain original entry");
+    const prompt1 = await store.formatForSystemPrompt();
+    assert.ok(prompt1.includes("Original entry"), "should contain original entry");
 
     // Add a new entry in-memory (simulating a tool call that adds memory mid-session)
-    store.add("memory", "New entry after load");
+    await store.add("memory", "New entry after load");
     // Wait for async write
     await new Promise((r) => setTimeout(r, 250));
 
-    // formatForSystemPrompt should still return the snapshot from load time
-    const prompt2 = store.formatForSystemPrompt();
-    assert.ok(!prompt2.includes("New entry after load"), "snapshot should NOT contain entry added after load");
+    // formatForSystemPrompt uses dynamic selection, so new entry should appear
+    const prompt2 = await store.formatForSystemPrompt();
+    assert.ok(prompt2.includes("New entry after load"), "dynamic selection should include new entry");
 
     // Create a SECOND store that loads the updated file
     const store2 = new MemoryStore(testConfig());
     await store2.loadFromDisk();
-    const prompt3 = store2.formatForSystemPrompt();
+    const prompt3 = await store2.formatForSystemPrompt();
     assert.ok(prompt3.includes("New entry after load"), "fresh load should see the new entry");
 
     await clearFiles();
@@ -124,7 +124,7 @@ describe("system prompt injection", () => {
     const store = new MemoryStore(testConfig());
     await store.loadFromDisk();
 
-    const prompt = store.formatForSystemPrompt();
+    const prompt = await store.formatForSystemPrompt();
     assert.strictEqual(prompt, "", "formatForSystemPrompt should return empty string when no entries");
   });
 
@@ -136,7 +136,7 @@ describe("system prompt injection", () => {
     const store = new MemoryStore(testConfig());
     await store.loadFromDisk();
 
-    const prompt = store.formatForSystemPrompt();
+    const prompt = await store.formatForSystemPrompt();
 
     // Should contain the exact separator line
     assert.ok(prompt.includes(SEPARATOR), "should contain separator line");
@@ -157,7 +157,7 @@ describe("system prompt injection", () => {
     const store = new MemoryStore(testConfig());
     await store.loadFromDisk();
 
-    const prompt = store.formatForSystemPrompt();
+    const prompt = await store.formatForSystemPrompt();
 
     assert.match(prompt, /USER PROFILE \(who the user is\)/, "should contain USER PROFILE header");
     assert.ok(prompt.includes("User prefers dark mode"), "should contain user profile content");
@@ -172,7 +172,7 @@ describe("system prompt injection", () => {
     const store = new MemoryStore(testConfig());
     await store.loadFromDisk();
 
-    const prompt = store.formatForSystemPrompt();
+    const prompt = await store.formatForSystemPrompt();
 
     // The MEMORY block and USER block should be separated by exactly \n\n
     const memoryIdx = prompt.indexOf("MEMORY");

@@ -5,7 +5,7 @@
  * This implements Hermes' "self-evaluation checkpoint" pattern.
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { MemoryStore } from "../store/memory-store.js";
 import { SkillStore } from "../store/skill-store.js";
 import { COMBINED_REVIEW_PROMPT, DEFAULT_SKILL_TRIGGER_TOOL_CALLS, ENTRY_DELIMITER } from "../constants.js";

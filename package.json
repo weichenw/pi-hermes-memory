@@ -12,12 +12,13 @@
   ],
   "pi": {
     "extensions": [
-      "./src/index.ts"
+      "./index.ts"
     ]
   },
   "scripts": {
     "check": "tsc --noEmit",
-    "test": "tests/run-all.sh"
+    "test": "tests/run-all.sh",
+    "rebuild-native": "npm rebuild better-sqlite3"
   },
   "keywords": [
     "pi-package",
@@ -45,11 +46,11 @@
     "url": "https://github.com/chandra447/pi-hermes-memory"
   },
   "peerDependencies": {
-    "@mariozechner/pi-coding-agent": ">=0.70.0"
+    "@earendil-works/pi-coding-agent": ">=0.70.0"
   },
   "devDependencies": {
-    "@mariozechner/pi-ai": "^0.70.0",
-    "@mariozechner/pi-coding-agent": "^0.70.0",
+    "@earendil-works/pi-ai": "^0.70.0",
+    "@earendil-works/pi-coding-agent": "^0.70.0",
     "@types/better-sqlite3": "^7.6.13",
     "tsx": "^4.21.0",
     "typebox": "^1.1.33",

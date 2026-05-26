@@ -39,6 +39,6 @@ export function detectProject(cwd?: string): ProjectInfo {
 
   return {
     name,
-    memoryDir: path.join(homeDir, ".pi", "agent", name),
+    memoryDir: path.join(homeDir, ".pi", "agent", "memory", "projects", name),
   };
 }

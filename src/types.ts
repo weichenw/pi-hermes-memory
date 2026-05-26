@@ -41,6 +41,8 @@ export interface MemoryConfig {
   sessionSearchEnabled?: boolean;
   /** Days to retain session history. Default: 90 */
   sessionRetentionDays?: number;
+  /** Days to retain memory entries. Default: 180 */
+  memoryRetentionDays?: number;
   /** Auto-inject memory into system prompt at session start. Default: true */
   autoInject?: boolean;
   /** Max chars to inject into system prompt. Default: 3000 */
