@@ -19,6 +19,8 @@ async function setupCommand(
   const mockStore = {
     getMemoryEntries: () => [...memoryEntries],
     getUserEntries: () => [...userEntries],
+    getMemoryChars: () => memoryEntries.reduce((sum, e) => sum + e.length, 0),
+    getUserChars: () => userEntries.reduce((sum, e) => sum + e.length, 0),
   };
 
   const commands: { name: string; handler: Function }[] = [];
