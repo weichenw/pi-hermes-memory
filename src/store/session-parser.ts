@@ -112,7 +112,7 @@ export function parseSessionFile(filePath: string): ParsedSession | null {
   let sessionId: string | null = null;
   let sessionCwd: string | null = null;
   let sessionTimestamp: string | null = null;
-  const messages: ParsedMessage[] = [];
+  const messages = new Map<string, ParsedMessage>();
 
   for (const line of lines) {
     let entry: JsonlEntry;
@@ -140,7 +140,8 @@ export function parseSessionFile(filePath: string): ParsedSession | null {
 
         const toolCalls = role === 'assistant' ? extractToolCalls(entry.message.content) : undefined;
 
-        messages.push({
+        // Replace any earlier entry with the same ID — Pi appends updates to JSONL
+        messages.set(entry.id, {
           id: entry.id,
           role,
           content: textContent,
@@ -166,7 +167,7 @@ export function parseSessionFile(filePath: string): ParsedSession | null {
     cwd: sessionCwd,
     startedAt: sessionTimestamp,
     endedAt: null, // We don't know when it ended from the JSONL
-    messages,
+    messages: [...messages.values()],
   };
 }
 
