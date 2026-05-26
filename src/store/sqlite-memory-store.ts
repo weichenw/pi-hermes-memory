@@ -19,6 +19,8 @@ export interface SqliteMemoryEntry {
 
 /**
  * Add a memory entry to the SQLite store.
+ * If an identical entry (same content + target + project + category) already
+ * exists, updates its last_referenced date instead of inserting a duplicate.
  */
 export function addMemory(
   dbManager: DatabaseManager,
@@ -33,6 +35,32 @@ export function addMemory(
   const db = dbManager.getDb();
   const today = new Date().toISOString().split('T')[0];
 
+  // ── Deduplication check — exact match on content + target + project + category ──
+  const existing = db.prepare(
+    'SELECT id, created, last_referenced FROM memories WHERE content = ? AND target = ? AND project IS ? AND category IS ?'
+  ).get(content, target, project, category) as { id: number; created: string; last_referenced: string } | undefined;
+
+  if (existing) {
+    // Touch the existing entry — update last_referenced + any new metadata
+    db.prepare(
+      'UPDATE memories SET last_referenced = ?, failure_reason = ?, tool_state = ?, corrected_to = ? WHERE id = ?'
+    ).run(today, failureReason, toolState, correctedTo, existing.id);
+
+    return {
+      id: existing.id,
+      project,
+      target,
+      category,
+      content,
+      failureReason,
+      toolState,
+      correctedTo,
+      created: existing.created,
+      lastReferenced: today,
+    };
+  }
+
+  // ── Fresh insert ──
   const result = db.prepare(`
     INSERT INTO memories (project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
