@@ -205,6 +205,12 @@ describe("setupCorrectionDetector handler", () => {
     nudgeToolCalls: 15,
   };
 
+  const dbManager = {
+    getDb: () => ({
+      prepare: () => ({ run: () => ({}) }),
+    }),
+  } as any;
+
   function makeCtx(branch: any[] = []) {
     return {
       sessionManager: { getBranch: () => branch },
@@ -247,7 +253,7 @@ describe("setupCorrectionDetector handler", () => {
 
   it("triggers pi.exec when correction detected", async () => {
     const pi = createMockPi();
-    setupCorrectionDetector(pi, mockStore, null, config);
+    setupCorrectionDetector(pi, mockStore, null, dbManager, config);
 
     const branch = [
       { type: "message", message: { role: "user", content: [{ type: "text", text: "don't do that" }] } },
@@ -263,7 +269,7 @@ describe("setupCorrectionDetector handler", () => {
 
   it("does NOT trigger on normal messages", async () => {
     const pi = createMockPi();
-    setupCorrectionDetector(pi, mockStore, null, config);
+    setupCorrectionDetector(pi, mockStore, null, dbManager, config);
 
     fireMessageEnd("user", "looks good");
     fireTurnEnd([]);
@@ -274,7 +280,7 @@ describe("setupCorrectionDetector handler", () => {
 
   it("rate limits: does not trigger on consecutive corrections within 3 turns", async () => {
     const pi = createMockPi();
-    setupCorrectionDetector(pi, mockStore, null, config);
+    setupCorrectionDetector(pi, mockStore, null, dbManager, config);
 
     // First correction
     fireMessageEnd("user", "don't do that");
@@ -295,7 +301,7 @@ describe("setupCorrectionDetector handler", () => {
   it("does not register handlers when correctionDetection is false", () => {
     const pi = createMockPi();
     const disabledConfig = { ...config, correctionDetection: false };
-    setupCorrectionDetector(pi, mockStore, null, disabledConfig);
+    setupCorrectionDetector(pi, mockStore, null, dbManager, disabledConfig);
 
     assert.strictEqual(Object.keys(handlers).length, 0, "no handlers should be registered when disabled");
   });
