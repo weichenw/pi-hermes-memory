@@ -24,7 +24,7 @@
 
 import * as path from "node:path";
 import * as os from "node:os";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { MemoryStore } from "./store/memory-store.js";
 import { SkillStore } from "./store/skill-store.js";
 import { DatabaseManager } from "./store/db.js";
@@ -47,6 +47,34 @@ import { registerIndexSessionsCommand } from "./handlers/index-sessions.js";
 import { registerLearnMemoryCommand } from "./handlers/learn-memory.js";
 import { loadConfig } from "./config.js";
 import { detectProject } from "./project.js";
+
+// ─── Domain detection helpers ───
+
+function detectDomainFromContext(text: string, domains?: string[]): string | undefined {
+  if (!domains || domains.length === 0) return undefined;
+  const lower = text.toLowerCase();
+  for (const d of domains) {
+    if (lower.includes(d.toLowerCase())) return d;
+  }
+  return undefined;
+}
+
+function extractKeywordsFromContext(...texts: (string | null)[]): string[] {
+  const combined = texts.filter(Boolean).join(" ");
+  const stopWords = new Set([
+    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "could",
+    "should", "may", "might", "must", "shall", "can", "need", "to", "of",
+    "in", "for", "on", "with", "at", "by", "from", "as", "into", "through",
+    "during", "before", "after", "above", "below", "between", "under",
+    "again", "further", "then", "once", "here", "there", "when", "where",
+    "why", "how", "all", "any", "both", "each", "few", "more", "most",
+    "other", "some", "such", "no", "nor", "not", "only", "own", "same",
+    "so", "than", "too", "very", "just", "and", "but", "if", "or",
+    "because", "until", "while",
+  ]);
+  return [...new Set(combined.toLowerCase().split(/\W+/).filter((w) => w.length > 2 && !stopWords.has(w)))];
+}
 
 export default function (pi: ExtensionAPI) {
   const config = loadConfig();
@@ -90,10 +118,13 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
-  // ── 2. Inject frozen snapshot + skill index + project memory into system prompt (optional) ──
+  // ── 2. Inject ranked memory + skill index + project memory into system prompt (optional) ───
   if (config.autoInject !== false) {
     pi.on("before_agent_start", async (event, _ctx) => {
-      const memoryBlock = store.formatForSystemPrompt();
+      const domain = detectDomainFromContext(projectName + " " + process.cwd(), config.memoryDomains);
+      const contextKeywords = extractKeywordsFromContext(projectName, process.cwd());
+
+      const memoryBlock = await store.formatForSystemPrompt(domain, contextKeywords);
       const skillIndex = await skillStore.formatIndexForSystemPrompt();
       const projectBlock = projectStore ? projectStore.formatProjectBlock(projectName) : "";
 
@@ -110,8 +141,8 @@ export default function (pi: ExtensionAPI) {
     });
   }
 
-  // ── 3. Register the memory tool (with project store) ──
-  registerMemoryTool(pi, store, projectStore);
+  // ── 3. Register the memory tool (with project store + domain inference) ──
+  registerMemoryTool(pi, store, projectStore, dbManager, projectName, config.memoryDomains ?? [], config.memoryDomainKeywords ?? {});
 
   // ── 4. Register the skill tool ──
   registerSkillTool(pi, skillStore);
@@ -129,7 +160,7 @@ export default function (pi: ExtensionAPI) {
   registerConsolidateCommand(pi, store);
 
   // ── 8. Setup correction detection ──
-  setupCorrectionDetector(pi, store, projectStore, config);
+  setupCorrectionDetector(pi, store, projectStore, dbManager, config);
 
   // ── 9. Setup skill auto-trigger ──
   setupSkillAutoTrigger(pi, store, skillStore, config);
@@ -147,25 +178,13 @@ export default function (pi: ExtensionAPI) {
   registerIndexSessionsCommand(pi);
 
   // ── 12. Auto-index session on shutdown ──
-  pi.on("session_shutdown", async (_event, _ctx) => {
+  pi.on("session_shutdown", async (_event, ctx) => {
     try {
-      const fs = require("node:fs");
-      const sessionsDir = path.join(os.homedir(), ".pi", "agent", "sessions");
-      const cwd = process.cwd();
-      const encodedCwd = cwd.replace(/\//g, "-");
-      const sessionDir = path.join(sessionsDir, encodedCwd);
-
-      if (fs.existsSync(sessionDir)) {
-        // Find the most recent JSONL file (the one we just finished)
-        const files = fs.readdirSync(sessionDir)
-          .filter((f: string) => f.endsWith(".jsonl"))
-          .sort()
-          .reverse();
-        if (files.length > 0) {
-          const sessionData = parseSessionFile(path.join(sessionDir, files[0]));
-          if (sessionData) {
-            indexSession(dbManager, sessionData);
-          }
+      const sessionFile = ctx.sessionManager.getSessionFile();
+      if (sessionFile && require("node:fs").existsSync(sessionFile)) {
+        const sessionData = parseSessionFile(sessionFile);
+        if (sessionData) {
+          indexSession(dbManager, sessionData);
         }
       }
     } catch {

@@ -11,7 +11,12 @@ import {
   DEFAULT_NUDGE_TOOL_CALLS,
   DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS,
   DEFAULT_FAILURE_INJECTION_MAX_ENTRIES,
+  DEFAULT_MEMORY_INJECT_LIMIT,
+  DEFAULT_MEMORY_DOMAINS,
+  DEFAULT_MEMORY_DOMAIN_KEYWORDS,
 } from "./constants.js";
+
+import { normalizeConfiguredMemoryDir } from "./paths.js";
 
 const DEFAULT_CONFIG: MemoryConfig = {
   memoryCharLimit: DEFAULT_MEMORY_CHAR_LIMIT,
@@ -29,6 +34,9 @@ const DEFAULT_CONFIG: MemoryConfig = {
   failureInjectionMaxEntries: DEFAULT_FAILURE_INJECTION_MAX_ENTRIES,
   nudgeToolCalls: DEFAULT_NUDGE_TOOL_CALLS,
   autoInject: true,
+  memoryInjectLimit: DEFAULT_MEMORY_INJECT_LIMIT,
+  memoryDomains: DEFAULT_MEMORY_DOMAINS,
+  memoryDomainKeywords: { ...DEFAULT_MEMORY_DOMAIN_KEYWORDS },
 };
 
 export const DEFAULT_CONFIG_PATH = path.join(
@@ -61,8 +69,24 @@ function mergeConfig(base: MemoryConfig, parsed: Record<string, unknown>): Memor
   if (typeof parsed.failureInjectionMaxEntries === "number") config.failureInjectionMaxEntries = parsed.failureInjectionMaxEntries;
   if (typeof parsed.nudgeToolCalls === "number") config.nudgeToolCalls = parsed.nudgeToolCalls;
   if (typeof parsed.projectCharLimit === "number") config.projectCharLimit = parsed.projectCharLimit;
-  if (typeof parsed.memoryDir === "string") config.memoryDir = parsed.memoryDir;
+  if (typeof parsed.memoryDir === "string") {
+    const normalizedMemoryDir = normalizeConfiguredMemoryDir(parsed.memoryDir);
+    if (normalizedMemoryDir) config.memoryDir = normalizedMemoryDir;
+  }
   if (typeof parsed.autoInject === "boolean") config.autoInject = parsed.autoInject;
+  if (typeof parsed.memoryInjectLimit === "number") config.memoryInjectLimit = parsed.memoryInjectLimit;
+  if (Array.isArray(parsed.memoryDomains)) config.memoryDomains = parsed.memoryDomains as string[];
+  if (parsed.memoryDomainKeywords && typeof parsed.memoryDomainKeywords === "object") {
+    // Merge user keywords over defaults (user can override per-domain or add new domains)
+    const userMap = parsed.memoryDomainKeywords as Record<string, unknown>;
+    const merged: Record<string, string[]> = { ...config.memoryDomainKeywords };
+    for (const [key, val] of Object.entries(userMap)) {
+      if (Array.isArray(val) && val.every((v) => typeof v === "string")) {
+        merged[key] = val as string[];
+      }
+    }
+    config.memoryDomainKeywords = merged;
+  }
   return config;
 }
 

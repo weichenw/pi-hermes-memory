@@ -34,14 +34,21 @@ function parseFrontmatter(raw: string): { meta: Record<string, string>; body: st
   return { meta, body: match[2].trim() };
 }
 
+function yamlQuote(str: string): string {
+  if (/[":\n\r]/.test(str)) {
+    return JSON.stringify(str);
+  }
+  return str;
+}
+
 function formatFrontmatter(doc: Omit<SkillDocument, "fileName">): string {
   return [
     "---",
-    `name: ${doc.name}`,
-    `description: ${doc.description}`,
+    `name: ${yamlQuote(doc.name)}`,
+    `description: ${yamlQuote(doc.description)}`,
     `version: ${doc.version}`,
-    `created: ${doc.created}`,
-    `updated: ${doc.updated}`,
+    `created: "${doc.created}"`,
+    `updated: "${doc.updated}"`,
     "---",
     doc.body,
   ].join("\n");
