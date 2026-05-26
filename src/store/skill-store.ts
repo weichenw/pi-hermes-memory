@@ -15,6 +15,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { scanContent } from "./content-scanner.js";
 import type { SkillIndex, SkillDocument, SkillResult } from "../types.js";
+import { moveFileSafe } from "./atomic-write.js";
 
 // ─── Frontmatter parsing ───
 
@@ -298,7 +299,7 @@ export class SkillStore {
 
     try {
       await fs.writeFile(tmpPath, content, "utf-8");
-      await fs.rename(tmpPath, filePath);
+      await moveFileSafe(tmpPath, filePath);
     } catch (err) {
       try { await fs.unlink(tmpPath); } catch { /* ignore */ }
       throw err;

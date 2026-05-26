@@ -10,6 +10,14 @@ export const ENTRY_DELIMITER = "\n§\n";
 // ─── Character limits (not tokens — model-independent) ───
 export const DEFAULT_MEMORY_CHAR_LIMIT = 5000;
 export const DEFAULT_USER_CHAR_LIMIT = 5000;
+export const DEFAULT_MEMORY_INJECT_LIMIT = 3000;
+export const DEFAULT_CONSOLIDATION_TIMEOUT_MS = 60000;
+export const DEFAULT_MEMORY_DOMAINS: string[] = [];
+export const DEFAULT_MEMORY_DOMAIN_KEYWORDS: Record<string, string[]> = {
+  finance: ["portfolio", "equities", "stocks", "dca", "vgs", "etf", "btc", "crypto", "dividend", "tax", "super", "smsf", "offset", "franking", "broker", "invest", "fund", "savings", "budget", "expense", "cmc", "nasdaq", "asx", "holdings", "realized", "unrealized", "cg", "capital", "gain", "loss", "trimmed", "rebalance"],
+  health: ["fitness", "workout", "diet", "gym", "running", "sleep", "calories", "protein", "fasting", "cardio", "steps"],
+  work: ["project", "team", "deadline", "meeting", "client", "deploy", "sprint", "standup", "retro", "oncall", "production", "incident"],
+};
 
 // ─── Learning loop defaults ───
 export const DEFAULT_PROJECT_CHAR_LIMIT = 5000;

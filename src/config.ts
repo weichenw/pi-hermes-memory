@@ -14,6 +14,7 @@ import {
   DEFAULT_MEMORY_INJECT_LIMIT,
   DEFAULT_MEMORY_DOMAINS,
   DEFAULT_MEMORY_DOMAIN_KEYWORDS,
+  DEFAULT_CONSOLIDATION_TIMEOUT_MS,
 } from "./constants.js";
 
 import { normalizeConfiguredMemoryDir } from "./paths.js";
@@ -37,6 +38,7 @@ const DEFAULT_CONFIG: MemoryConfig = {
   memoryInjectLimit: DEFAULT_MEMORY_INJECT_LIMIT,
   memoryDomains: DEFAULT_MEMORY_DOMAINS,
   memoryDomainKeywords: { ...DEFAULT_MEMORY_DOMAIN_KEYWORDS },
+  consolidationTimeoutMs: DEFAULT_CONSOLIDATION_TIMEOUT_MS,
 };
 
 export const DEFAULT_CONFIG_PATH = path.join(
@@ -69,6 +71,7 @@ function mergeConfig(base: MemoryConfig, parsed: Record<string, unknown>): Memor
   if (typeof parsed.failureInjectionMaxEntries === "number") config.failureInjectionMaxEntries = parsed.failureInjectionMaxEntries;
   if (typeof parsed.nudgeToolCalls === "number") config.nudgeToolCalls = parsed.nudgeToolCalls;
   if (typeof parsed.projectCharLimit === "number") config.projectCharLimit = parsed.projectCharLimit;
+  if (typeof parsed.consolidationTimeoutMs === "number") config.consolidationTimeoutMs = parsed.consolidationTimeoutMs;
   if (typeof parsed.memoryDir === "string") {
     const normalizedMemoryDir = normalizeConfiguredMemoryDir(parsed.memoryDir);
     if (normalizedMemoryDir) config.memoryDir = normalizedMemoryDir;

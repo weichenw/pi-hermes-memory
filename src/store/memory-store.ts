@@ -6,7 +6,8 @@
  * Design:
  * - Two stores: MEMORY.md (agent notes) and USER.md (user profile)
  * - §-delimited entries with character limits
- * - Frozen snapshot at load time for system prompt (preserves Pi's prompt cache)
+ * - Ranked selection for system prompt (hybrid scoring: recency + frequency + keywords)
+ * - Domain filtering for targeted memory injection
  * - Atomic writes via temp file + fs.rename()
  * - Content scanning before any write
  */
@@ -14,6 +15,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
+import { moveFileSafe } from "./atomic-write.js";
 import { scanContent } from "./content-scanner.js";
 import {
   ENTRY_DELIMITER,
@@ -21,16 +23,16 @@ import {
   DEFAULT_USER_CHAR_LIMIT,
   DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS,
   DEFAULT_FAILURE_INJECTION_MAX_ENTRIES,
+  DEFAULT_MEMORY_INJECT_LIMIT,
   MEMORY_FILE,
   USER_FILE,
 } from "../constants.js";
-import type { MemoryConfig, MemoryResult, MemorySnapshot, ConsolidationResult, MemoryCategory } from "../types.js";
+import type { MemoryConfig, MemoryResult, ConsolidationResult, MemoryCategory } from "../types.js";
 
 export class MemoryStore {
   private memoryEntries: string[] = [];
   private userEntries: string[] = [];
   private failureEntries: string[] = [];
-  private snapshot: MemorySnapshot = { memory: "", user: "" };
   private consolidator: ((target: "memory" | "user" | "failure", signal?: AbortSignal) => Promise<ConsolidationResult>) | null = null;
 
   constructor(private config: MemoryConfig) {}
@@ -89,21 +91,20 @@ export class MemoryStore {
     this.memoryEntries = [...new Set(this.memoryEntries)];
     this.userEntries = [...new Set(this.userEntries)];
     this.failureEntries = [...new Set(this.failureEntries)];
-
-    // Capture frozen snapshot for system prompt injection
-    // Strip metadata comments — the LLM doesn't need to see timestamps
-    const strippedMemory = this.memoryEntries.map((e) => this.stripMetadata(e));
-    const strippedUser = this.userEntries.map((e) => this.stripMetadata(e));
-    this.snapshot = {
-      memory: this.renderBlock("memory", strippedMemory),
-      user: this.renderBlock("user", strippedUser),
-    };
   }
 
   // ─── CRUD ───
 
-  async add(target: "memory" | "user" | "failure", content: string, signal?: AbortSignal): Promise<MemoryResult> {
-    return this._add(target, content, signal);
+  async add(target: "memory" | "user" | "failure", content: string, optionsOrSignal?: { domain?: string } | AbortSignal, signal?: AbortSignal): Promise<MemoryResult> {
+    let domain: string | undefined;
+    let actualSignal: AbortSignal | undefined;
+    if (optionsOrSignal instanceof AbortSignal) {
+      actualSignal = optionsOrSignal;
+    } else if (optionsOrSignal && typeof optionsOrSignal === "object") {
+      domain = optionsOrSignal.domain;
+      actualSignal = signal;
+    }
+    return this._add(target, content, domain, actualSignal);
   }
 
   async addFailure(content: string, options: {
@@ -154,7 +155,7 @@ export class MemoryStore {
       .map((entry) => this.stripMetadata(entry));
   }
 
-  private async _add(target: "memory" | "user" | "failure", content: string, signal?: AbortSignal, _retriesLeft = 1): Promise<MemoryResult> {
+  private async _add(target: "memory" | "user" | "failure", content: string, domain?: string, signal?: AbortSignal, _retriesLeft = 1): Promise<MemoryResult> {
     content = content.trim();
     if (!content) return { success: false, error: "Content cannot be empty." };
 
@@ -172,7 +173,7 @@ export class MemoryStore {
 
     // Encode metadata: both dates = today
     const today = new Date().toISOString().split("T")[0];
-    const encoded = this.encodeEntry(content, today, today);
+    const encoded = this.encodeEntry(content, today, today, 1, domain);
 
     const newTotal = [...entries, encoded].join(ENTRY_DELIMITER).length;
     if (newTotal > limit) {
@@ -184,7 +185,7 @@ export class MemoryStore {
             // CRITICAL: reload from disk — child process modified files, our arrays are stale
             await this.loadFromDisk();
             // Retry the add exactly once (retriesLeft = 0 means no more consolidation)
-            return this._add(target, content, signal, _retriesLeft - 1);
+            return this._add(target, content, domain, signal, _retriesLeft - 1);
           }
         } catch {
           // Consolidation failed — fall through to error
@@ -227,10 +228,10 @@ export class MemoryStore {
     }
 
     const idx = entries.indexOf(matches[0]);
-    // Preserve original created date, update last_referenced to today
+    // Preserve original created date, refs, and domain; update last_referenced to today
     const decoded = this.decodeEntry(matches[0]);
     const today = new Date().toISOString().split("T")[0];
-    const encoded = this.encodeEntry(newContent, decoded.created, today);
+    const encoded = this.encodeEntry(newContent, decoded.created, today, decoded.refs, decoded.domain);
 
     const testEntries = [...entries];
     testEntries[idx] = encoded;
@@ -274,14 +275,84 @@ export class MemoryStore {
     return this.successResponse(target, "Entry removed.");
   }
 
-  // ─── System prompt injection (frozen snapshot) ───
+  // ─── System prompt injection (ranked selection with hybrid scoring) ───
 
-  formatForSystemPrompt(): string {
+  async formatForSystemPrompt(domain?: string, contextKeywords?: string[]): Promise<string> {
     const parts: string[] = [];
-    if (this.snapshot.memory) parts.push(this.fenceBlock(this.snapshot.memory));
-    if (this.snapshot.user) parts.push(this.fenceBlock(this.snapshot.user));
 
-    // Add recent failure memories
+    // 1. User profile — always injected in full (small and universally relevant)
+    const userBlock = this.renderBlock("user", this.userEntries.map((e) => this.stripMetadata(e)));
+    if (userBlock) parts.push(this.fenceBlock(userBlock));
+
+    // 2. Memory entries — filtered by domain, scored, and ranked
+    let memoryEntries = this.memoryEntries;
+
+    // Pre-filter by domain if specified
+    if (domain) {
+      memoryEntries = memoryEntries.filter((e) => {
+        const decoded = this.decodeEntry(e);
+        return decoded.domain === domain || !decoded.domain;
+      });
+    }
+
+    // Score and rank
+    const scored = memoryEntries.map((raw) => ({
+      raw,
+      decoded: this.decodeEntry(raw),
+      score: this.scoreEntry(raw, contextKeywords),
+    }));
+    scored.sort((a, b) => b.score - a.score);
+
+    // Select top entries up to memoryInjectLimit
+    const injectLimit = this.config.memoryInjectLimit ?? DEFAULT_MEMORY_INJECT_LIMIT;
+    const selected: typeof scored = [];
+    let totalChars = 0;
+    let touched = false;
+    const today = new Date().toISOString().split("T")[0];
+
+    for (const entry of scored) {
+      const entryChars = entry.decoded.text.length;
+      if (totalChars + entryChars > injectLimit && selected.length > 0) break;
+      selected.push(entry);
+      totalChars += entryChars;
+      // Touch: update last_referenced and increment refs
+      if (entry.decoded.lastReferenced !== today) {
+        entry.decoded.lastReferenced = today;
+        touched = true;
+      }
+      entry.decoded.refs += 1;
+    }
+
+    // Update in-memory arrays with touched metadata
+    if (touched || selected.length > 0) {
+      const newMemoryEntries: string[] = [];
+      for (const raw of this.memoryEntries) {
+        const selectedEntry = selected.find((s) => s.raw === raw);
+        if (selectedEntry) {
+          newMemoryEntries.push(
+            this.encodeEntry(
+              selectedEntry.decoded.text,
+              selectedEntry.decoded.created,
+              selectedEntry.decoded.lastReferenced,
+              selectedEntry.decoded.refs,
+              selectedEntry.decoded.domain
+            )
+          );
+        } else {
+          newMemoryEntries.push(raw);
+        }
+      }
+      this.memoryEntries = newMemoryEntries;
+      await this.saveToDisk("memory");
+    }
+
+    if (selected.length > 0) {
+      const stripped = selected.map((e) => e.decoded.text);
+      const memoryBlock = this.renderBlock("memory", stripped);
+      parts.push(this.fenceBlock(memoryBlock));
+    }
+
+    // 3. Recent failure memories (unchanged logic)
     if (this.config.failureInjectionEnabled !== false) {
       const maxAgeDays = this.config.failureInjectionMaxAgeDays ?? DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS;
       const maxFailures = this.config.failureInjectionMaxEntries ?? DEFAULT_FAILURE_INJECTION_MAX_ENTRIES;
@@ -328,30 +399,80 @@ export class MemoryStore {
   // ─── Internal helpers ───
 
   /**
-   * Encode metadata (created, lastReferenced) as an HTML comment appended to entry text.
+   * Encode metadata (created, lastReferenced, refs, domain) as an HTML comment appended to entry text.
    * The comment is invisible in markdown and transparent to the § delimiter.
    */
-  private encodeEntry(text: string, created: string, lastReferenced: string): string {
-    return `${text} <!-- created=${created}, last=${lastReferenced} -->`;
+  private encodeEntry(text: string, created: string, lastReferenced: string, refs = 1, domain?: string): string {
+    let meta = `created=${created}, last=${lastReferenced}, refs=${refs}`;
+    if (domain) meta += `, domain=${domain}`;
+    return `${text} <!-- ${meta} -->`;
   }
 
   /**
    * Decode entry text, extracting metadata if present.
    * Falls back to today's date for legacy entries without metadata.
    */
-  private decodeEntry(raw: string): { text: string; created: string; lastReferenced: string } {
-    const match = raw.match(/^(.*?)\s*<!--\s*created=([^,]+),\s*last=([^>]+)\s*-->\s*$/);
+  private decodeEntry(raw: string): { text: string; created: string; lastReferenced: string; refs: number; domain?: string } {
+    const match = raw.match(/^(.*?)\s*<!--\s*created=([^,]+),\s*last=([^,]+)(?:,\s*refs=([^,]+))?(?:,\s*domain=([^>]+))?\s*-->\s*$/);
     if (match) {
-      return { text: match[1].trim(), created: match[2].trim(), lastReferenced: match[3].trim() };
+      return {
+        text: match[1].trim(),
+        created: match[2].trim(),
+        lastReferenced: match[3].trim(),
+        refs: parseInt(match[4]?.trim() || "1", 10),
+        domain: match[5]?.trim() || undefined,
+      };
     }
     // Legacy entry without metadata — use today as default
     const today = new Date().toISOString().split("T")[0];
-    return { text: raw.trim(), created: today, lastReferenced: today };
+    return { text: raw.trim(), created: today, lastReferenced: today, refs: 1, domain: undefined };
   }
 
   /** Strip metadata comment from entry text for display. */
   private stripMetadata(text: string): string {
     return this.decodeEntry(text).text;
+  }
+
+  /** Extract keywords from text for overlap scoring. */
+  private extractKeywords(text: string): string[] {
+    const stopWords = new Set([
+      "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+      "have", "has", "had", "do", "does", "did", "will", "would", "could",
+      "should", "may", "might", "must", "shall", "can", "need", "to", "of",
+      "in", "for", "on", "with", "at", "by", "from", "as", "into", "through",
+      "during", "before", "after", "above", "below", "between", "under",
+      "again", "further", "then", "once", "here", "there", "when", "where",
+      "why", "how", "all", "any", "both", "each", "few", "more", "most",
+      "other", "some", "such", "no", "nor", "not", "only", "own", "same",
+      "so", "than", "too", "very", "just", "and", "but", "if", "or",
+      "because", "until", "while",
+    ]);
+    return [...new Set(text.toLowerCase().split(/\W+/).filter((w) => w.length > 2 && !stopWords.has(w)))];
+  }
+
+  /**
+   * Hybrid score combining recency, frequency, and keyword overlap.
+   * Weights: recency 40%, frequency 30%, keyword overlap 30%.
+   */
+  private scoreEntry(raw: string, contextKeywords?: string[]): number {
+    const decoded = this.decodeEntry(raw);
+
+    // Recency: exponential decay with 30-day half-life
+    const daysSinceRef = (Date.now() - new Date(decoded.lastReferenced).getTime()) / (1000 * 60 * 60 * 24);
+    const recencyScore = Math.exp(-daysSinceRef / 30);
+
+    // Frequency: log-normalized reference count
+    const freqScore = Math.log1p(decoded.refs) / Math.log1p(10);
+
+    // Keyword overlap with current context
+    let keywordScore = 0;
+    if (contextKeywords && contextKeywords.length > 0) {
+      const entryWords = new Set(this.extractKeywords(decoded.text));
+      const matches = contextKeywords.filter((kw) => entryWords.has(kw.toLowerCase())).length;
+      keywordScore = matches / contextKeywords.length;
+    }
+
+    return recencyScore * 0.4 + freqScore * 0.3 + keywordScore * 0.3;
   }
 
   private successResponse(target: "memory" | "user" | "failure", message?: string): MemoryResult {
@@ -445,7 +566,7 @@ export class MemoryStore {
 
     try {
       await fs.writeFile(tmpPath, content, "utf-8");
-      await fs.rename(tmpPath, filePath);
+      await moveFileSafe(tmpPath, filePath);
     } catch (err) {
       try { await fs.unlink(tmpPath); } catch { /* ignore */ }
       throw err;

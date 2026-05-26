@@ -2,7 +2,7 @@
  * Shared TypeScript types for the Hermes Memory extension.
  */
 
-import type { TextContent } from "@mariozechner/pi-ai";
+import type { TextContent } from "@earendil-works/pi-ai";
 
 export interface MemoryConfig {
   /** Max chars for MEMORY.md (agent notes). Default: 5000 */
@@ -35,12 +35,20 @@ export interface MemoryConfig {
   failureInjectionMaxEntries: number;
   /** Tool calls before triggering background review (in addition to turn count). Default: 15 */
   nudgeToolCalls: number;
+  /** Consolidation timeout in milliseconds. Default: 60000 */
+  consolidationTimeoutMs?: number;
   /** Enable session history search via SQLite FTS5. Default: true */
   sessionSearchEnabled?: boolean;
   /** Days to retain session history. Default: 90 */
   sessionRetentionDays?: number;
   /** Auto-inject memory into system prompt at session start. Default: true */
   autoInject?: boolean;
+  /** Max chars to inject into system prompt. Default: 3000 */
+  memoryInjectLimit?: number;
+  /** Known domain tags for pre-filtering memories. Default: [] */
+  memoryDomains?: string[];
+  /** Keyword map for auto-inferring domains from memory content. Default: {} */
+  memoryDomainKeywords?: Record<string, string[]>;
 }
 
 export type MemoryCategory =
