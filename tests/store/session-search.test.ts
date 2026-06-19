@@ -117,6 +117,32 @@ describe('session-search', () => {
       const results = searchSessions(dbManager, 'AND OR NOT');
       assert.ok(Array.isArray(results));
     });
+
+    it('should return empty for an empty/whitespace query', () => {
+      indexSession(dbManager, createTestSession());
+      assert.strictEqual(searchSessions(dbManager, '').length, 0);
+      assert.strictEqual(searchSessions(dbManager, '   ').length, 0);
+    });
+
+    it('should find messages matching a multi-word natural-language query', () => {
+      indexSession(dbManager, createTestSession());
+
+      // 'database migrations' is two terms; normalizeFts5Query turns it into
+      // "database" "migrations" (implicit AND). The indexed assistant message
+      // 'Use prisma migrate dev to create migrations...' contains 'migrations'
+      // and 'database' appears in another message, so the AND should still hit
+      // the message that has 'migrations'.
+      const results = searchSessions(dbManager, 'database migrations');
+      assert.ok(results.length > 0, 'multi-word AND query should match');
+      assert.ok(results.some(r => r.content.toLowerCase().includes('migrations')));
+    });
+
+    it('should match a single word query as before', () => {
+      indexSession(dbManager, createTestSession());
+      const results = searchSessions(dbManager, 'Prisma');
+      assert.ok(results.length > 0);
+      assert.ok(results.every(r => r.content.toLowerCase().includes('prisma')));
+    });
   });
 
   describe('getIndexedMessageCount', () => {

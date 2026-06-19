@@ -1,4 +1,5 @@
 import { DatabaseManager } from './db.js';
+import { buildFallbackFts5Query, isFts5QueryError, normalizeFts5Query } from './fts-query.js';
 import type { MemoryCategory } from '../types.js';
 
 /**
@@ -81,19 +82,6 @@ export function addMemory(
 }
 
 /**
- * Escape a string for FTS5 query syntax.
- * Wraps the query in double quotes to treat it as a literal phrase.
- */
-function escapeFts5Query(query: string): string {
-  // If the query already contains FTS5 operators (OR, AND, NOT, NEAR), leave it as-is
-  if (/\b(OR|AND|NOT|NEAR)\b/.test(query)) {
-    return query;
-  }
-  // Otherwise, wrap in double quotes to treat as literal phrase
-  return `"${query.replace(/"/g, '""')}"`;
-}
-
-/**
  * Search memories using FTS5.
  */
 export function searchMemories(
@@ -101,71 +89,95 @@ export function searchMemories(
   query: string,
   options: { project?: string; target?: string; category?: MemoryCategory; limit?: number } = {}
 ): SqliteMemoryEntry[] {
+  if (query.trim().length === 0) return [];
+
   const db = dbManager.getDb();
   const { project, target, category, limit = 10 } = options;
 
-  const conditions: string[] = [];
-  const params: unknown[] = [];
+  const normalizedQuery = normalizeFts5Query(query);
+  if (normalizedQuery.length === 0) return [];
 
-  // FTS5 match via subquery with escaped query
-  conditions.push('m.id IN (SELECT rowid FROM memory_fts WHERE memory_fts MATCH ?)');
-  params.push(escapeFts5Query(query));
+  const runSearch = (matchQuery: string): SqliteMemoryEntry[] => {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
 
-  if (project !== undefined) {
-    if (project === null) {
-      conditions.push('m.project IS NULL');
-    } else {
-      conditions.push('m.project = ?');
-      params.push(project);
+    // FTS5 match via subquery with normalized query
+    conditions.push('m.id IN (SELECT rowid FROM memory_fts WHERE memory_fts MATCH ?)');
+    params.push(matchQuery);
+
+    if (project !== undefined) {
+      if (project === null) {
+        conditions.push('m.project IS NULL');
+      } else {
+        conditions.push('m.project = ?');
+        params.push(project);
+      }
     }
-  }
 
-  if (target) {
-    conditions.push('m.target = ?');
-    params.push(target);
-  }
+    if (target) {
+      conditions.push('m.target = ?');
+      params.push(target);
+    }
 
-  if (category) {
-    conditions.push('m.category = ?');
-    params.push(category);
-  }
+    if (category) {
+      conditions.push('m.category = ?');
+      params.push(category);
+    }
 
-  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-  const sql = `
-    SELECT id, project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced
-    FROM memories m
-    ${whereClause}
-    ORDER BY m.last_referenced DESC
-    LIMIT ?
-  `;
-  params.push(limit);
+    const sql = `
+      SELECT id, project, target, category, content, failure_reason, tool_state, corrected_to, created, last_referenced
+      FROM memories m
+      ${whereClause}
+      ORDER BY m.last_referenced DESC
+      LIMIT ?
+    `;
+    params.push(limit);
 
-  const rows = db.prepare(sql).all(...params) as Array<{
-    id: number;
-    project: string | null;
-    target: string;
-    category: string | null;
-    content: string;
-    failure_reason: string | null;
-    tool_state: string | null;
-    corrected_to: string | null;
-    created: string;
-    last_referenced: string;
-  }>;
+    try {
+      const rows = db.prepare(sql).all(...params) as Array<{
+        id: number;
+        project: string | null;
+        target: string;
+        category: string | null;
+        content: string;
+        failure_reason: string | null;
+        tool_state: string | null;
+        corrected_to: string | null;
+        created: string;
+        last_referenced: string;
+      }>;
 
-  return rows.map(row => ({
-    id: row.id,
-    project: row.project,
-    target: row.target as 'memory' | 'user' | 'failure',
-    category: row.category as MemoryCategory | null,
-    content: row.content,
-    failureReason: row.failure_reason,
-    toolState: row.tool_state,
-    correctedTo: row.corrected_to,
-    created: row.created,
-    lastReferenced: row.last_referenced,
-  }));
+      return rows.map(row => ({
+        id: row.id,
+        project: row.project,
+        target: row.target as 'memory' | 'user' | 'failure',
+        category: row.category as MemoryCategory | null,
+        content: row.content,
+        failureReason: row.failure_reason,
+        toolState: row.tool_state,
+        correctedTo: row.corrected_to,
+        created: row.created,
+        lastReferenced: row.last_referenced,
+      }));
+    } catch (err) {
+      // FTS5 can throw on malformed queries — return empty results, but
+      // surface anything else so genuine DB errors aren't swallowed.
+      if (isFts5QueryError(err)) return [];
+      throw err;
+    }
+  };
+
+  // Strict AND match first. For natural-language multi-term queries that find
+  // nothing, retry with a broader OR query so a single matching term still hits.
+  const exactResults = runSearch(normalizedQuery);
+  if (exactResults.length > 0) return exactResults;
+
+  const fallbackQuery = buildFallbackFts5Query(query);
+  if (!fallbackQuery || fallbackQuery === normalizedQuery) return exactResults;
+
+  return runSearch(fallbackQuery);
 }
 
 /**

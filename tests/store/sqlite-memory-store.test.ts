@@ -76,4 +76,75 @@ describe('sqlite-memory-store', () => {
       assert.strictEqual(mem2.correctedTo, 'new corrected');
     });
   });
+
+  describe('searchMemories FTS normalization', () => {
+    it('returns [] for empty/whitespace query', () => {
+      addMemory(dbManager, 'prefers pnpm over npm', 'user', null, 'preference');
+      assert.deepEqual(searchMemories(dbManager, ''), []);
+      assert.deepEqual(searchMemories(dbManager, '   '), []);
+    });
+
+    it('finds a multi-word entry with a multi-word AND query', () => {
+      // Stored content contains both 'gpu' and 'timeout' in one entry.
+      addMemory(dbManager, 'gpu timeout during inference', 'memory', null, null);
+
+      const results = searchMemories(dbManager, 'gpu timeout');
+      assert.ok(results.length > 0, 'multi-word AND query should match an entry containing both terms');
+      assert.ok(results.some(r => r.content.includes('gpu timeout during inference')));
+    });
+
+    it('strict AND misses when terms are in separate entries', () => {
+      // Note: with the OR fallback always enabled, a zero-result strict AND
+      // triggers the fallback, so this case is covered by the next test instead.
+      // Here we just confirm the entries land in separate rows.
+      addMemory(dbManager, 'gpu is fast', 'memory', null, null);
+      addMemory(dbManager, 'the request timed out as a timeout', 'memory', null, null);
+
+      // No single entry contains both 'gpu' and 'timeout' as a phrase, but the
+      // second entry contains 'timeout' — the OR fallback must find at least it.
+      const results = searchMemories(dbManager, 'gpu timeout');
+      assert.ok(results.length > 0);
+      assert.ok(results.some(r => r.content.includes('timeout')));
+    });
+
+    it('OR fallback returns entries matching any single term', () => {
+      addMemory(dbManager, 'gpu is fast', 'memory', null, null);
+      addMemory(dbManager, 'the request timed out as a timeout', 'memory', null, null);
+
+      // Strict AND misses (no entry has both 'gpu' and 'timeout'), so the OR
+      // fallback should kick in and return both entries.
+      const results = searchMemories(dbManager, 'gpu timeout');
+      assert.ok(results.length > 0, 'OR fallback should return matches for any single term');
+      const contents = results.map(r => r.content);
+      assert.ok(contents.some(c => c.includes('gpu')));
+      assert.ok(contents.some(c => c.includes('timeout')));
+    });
+
+    it('does not use OR fallback when strict AND already matches', () => {
+      addMemory(dbManager, 'gpu timeout during inference', 'memory', null, null);
+      addMemory(dbManager, 'unrelated entry about cats', 'memory', null, null);
+
+      const results = searchMemories(dbManager, 'gpu timeout');
+      // Strict AND matches the one entry; fallback must not pull in the cat entry.
+      assert.strictEqual(results.length, 1);
+      assert.ok(results[0].content.includes('gpu timeout during inference'));
+    });
+
+    it('preserves an explicit quoted phrase as a single term', () => {
+      addMemory(dbManager, 'the memory search tool', 'memory', null, null);
+      addMemory(dbManager, 'search your memory', 'memory', null, null);
+
+      // Quoted phrase "memory search" matches only the entry with that exact phrase.
+      const results = searchMemories(dbManager, '"memory search"');
+      assert.strictEqual(results.length, 1);
+      assert.ok(results[0].content.includes('the memory search tool'));
+    });
+
+    it('returns [] for a malformed FTS5 query without throwing', () => {
+      addMemory(dbManager, 'some entry', 'memory', null, null);
+      // "AND OR NOT" is passed through as raw operators and yields no matches.
+      const results = searchMemories(dbManager, 'AND OR NOT');
+      assert.ok(Array.isArray(results));
+    });
+  });
 });

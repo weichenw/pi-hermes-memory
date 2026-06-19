@@ -17,6 +17,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { moveFileSafe } from "./atomic-write.js";
 import { scanContent } from "./content-scanner.js";
+import { normalizeMemoryLookupText } from "./memory-lookup.js";
 import {
   ENTRY_DELIMITER,
   DEFAULT_MEMORY_CHAR_LIMIT,
@@ -206,7 +207,7 @@ export class MemoryStore {
   }
 
   async replace(target: "memory" | "user" | "failure", oldText: string, newContent: string): Promise<MemoryResult> {
-    oldText = oldText.trim();
+    oldText = normalizeMemoryLookupText(oldText);
     newContent = newContent.trim();
     if (!oldText) return { success: false, error: "old_text cannot be empty." };
     if (!newContent) return { success: false, error: "new_content cannot be empty. Use 'remove' to delete entries." };
@@ -252,18 +253,23 @@ export class MemoryStore {
   }
 
   async remove(target: "memory" | "user" | "failure", oldText: string): Promise<MemoryResult> {
-    oldText = oldText.trim();
+    oldText = normalizeMemoryLookupText(oldText);
     if (!oldText) return { success: false, error: "old_text cannot be empty." };
 
     const entries = this.entriesFor(target);
-    const matches = entries.filter((e) => e.includes(oldText));
+    // Match against stripped text — entries carry metadata comments that the
+    // user never sees, and a pasted memory_search line has a leading prefix.
+    const matches = entries.filter((e) => this.stripMetadata(e).includes(oldText));
 
     if (matches.length === 0) return { success: false, error: `No entry matched '${oldText}'.` };
     if (matches.length > 1 && new Set(matches).size > 1) {
       return {
         success: false,
         error: `Multiple entries matched '${oldText}'. Be more specific.`,
-        matches: matches.map((e) => e.slice(0, 80) + (e.length > 80 ? "..." : "")),
+        matches: matches.map((e) => {
+          const stripped = this.stripMetadata(e);
+          return stripped.slice(0, 80) + (stripped.length > 80 ? "..." : "");
+        }),
       };
     }
 

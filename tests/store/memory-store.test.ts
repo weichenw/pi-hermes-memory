@@ -393,6 +393,82 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       assert.ok(!result.success);
       assert.equal(result.error, "old_text cannot be empty.");
     });
+
+    // ─── pasted memory_search text (normalizeMemoryLookupText) ───
+
+    it("removes an entry when old_text is a pasted memory_search line with emoji + scope tag", async () => {
+      const store = new MemoryStore(makeConfig());
+      await store.loadFromDisk();
+
+      await store.add("memory", `${TEST_MARKER} prefers pnpm over npm`);
+      await settle();
+
+      // Simulate a line copied from memory_search output: `🧠 [global] prefers pnpm over npm`
+      const result = await store.remove("memory", `🧠 [global] ${TEST_MARKER} prefers pnpm over npm`);
+      await settle();
+
+      assert.ok(result.success, `expected success, got error: ${result.error}`);
+      assert.equal(result.message, "Entry removed.");
+
+      const raw = await readRaw(memoryPath);
+      assert.ok(!raw.includes(`${TEST_MARKER} prefers pnpm over npm`));
+    });
+
+    it("replaces an entry when old_text is a pasted memory_search line with emoji + scope tag", async () => {
+      const store = new MemoryStore(makeConfig());
+      await store.loadFromDisk();
+
+      await store.add("memory", `${TEST_MARKER} uses vim`);
+      await settle();
+
+      const result = await store.replace(
+        "memory",
+        `🧠 [global] ${TEST_MARKER} uses vim`,
+        `${TEST_MARKER} uses neovim`,
+      );
+      await settle();
+
+      assert.ok(result.success, `expected success, got error: ${result.error}`);
+
+      const raw = await readRaw(memoryPath);
+      assert.ok(!raw.includes(`${TEST_MARKER} uses vim`));
+      assert.ok(raw.includes(`${TEST_MARKER} uses neovim`));
+    });
+
+    it("removes an entry when old_text is a multi-line paste (uses first non-empty line)", async () => {
+      const store = new MemoryStore(makeConfig());
+      await store.loadFromDisk();
+
+      await store.add("memory", `${TEST_MARKER} keep this`);
+      await settle();
+
+      const pasted = `🧠 [global] ${TEST_MARKER} keep this\n\n  (matched 1 of 1 — memory_search output)`;
+      const result = await store.remove("memory", pasted);
+      await settle();
+
+      assert.ok(result.success, `expected success, got error: ${result.error}`);
+      assert.equal(result.entry_count, 0);
+    });
+
+    it("returns the failure-memory preview stripped of metadata in the multiple-match error", async () => {
+      const store = new MemoryStore(makeConfig());
+      await store.loadFromDisk();
+
+      await store.add("memory", `${TEST_MARKER} config: port=8080`);
+      await store.add("memory", `${TEST_MARKER} config: port=9090`);
+      await settle();
+
+      const result = await store.remove("memory", "config:");
+      assert.ok(!result.success);
+      assert.ok(result.error!.includes("Multiple entries matched"));
+      assert.ok(result.matches);
+      assert.equal(result.matches!.length, 2);
+      // Previews must be the stripped entry text, not raw with metadata comments
+      result.matches!.forEach((m) => {
+        assert.ok(m.includes(`${TEST_MARKER} config:`), `preview should contain entry text, got: ${m}`);
+        assert.ok(!m.startsWith("#"), `preview should not start with a metadata comment, got: ${m}`);
+      });
+    });
   });
 
   // ─── loadFromDisk() tests ───

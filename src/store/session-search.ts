@@ -1,17 +1,5 @@
 import { DatabaseManager } from './db.js';
-
-/**
- * Escape a string for FTS5 query syntax.
- * Wraps the query in double quotes to treat it as a literal phrase.
- */
-function escapeFts5Query(query: string): string {
-  // If the query already contains FTS5 operators (OR, AND, NOT, NEAR), leave it as-is
-  if (/\b(OR|AND|NOT|NEAR)\b/.test(query)) {
-    return query;
-  }
-  // Otherwise, wrap in double quotes to treat as literal phrase
-  return `"${query.replace(/"/g, '""')}"`;
-}
+import { isFts5QueryError, normalizeFts5Query } from './fts-query.js';
 
 /**
  * Search result from session history.
@@ -43,7 +31,8 @@ export interface SessionSearchOptions {
  * Search across indexed session messages using FTS5.
  *
  * @param dbManager — Database manager instance
- * @param query — FTS5 search query
+ * @param query — FTS5 search query (natural-language multi-word queries are
+ *   tokenized into per-term quoted AND; explicit operators pass through)
  * @param options — Search options
  * @returns Array of search results with snippets
  */
@@ -52,8 +41,13 @@ export function searchSessions(
   query: string,
   options: SessionSearchOptions = {}
 ): SessionSearchResult[] {
+  if (query.trim().length === 0) return [];
+
   const db = dbManager.getDb();
   const { limit = 10, project, role, since } = options;
+
+  const normalizedQuery = normalizeFts5Query(query);
+  if (normalizedQuery.length === 0) return [];
 
   // Build the query dynamically based on filters
   const conditions: string[] = [];
@@ -61,7 +55,7 @@ export function searchSessions(
 
   // FTS5 match condition — use subquery for reliable rowid matching
   conditions.push('m.rowid IN (SELECT rowid FROM message_fts WHERE message_fts MATCH ?)');
-  params.push(escapeFts5Query(query));
+  params.push(normalizedQuery);
 
   // Project filter
   if (project) {
@@ -119,8 +113,10 @@ export function searchSessions(
       snippet: row.snippet,
     }));
   } catch (err) {
-    // FTS5 can throw on malformed queries — return empty results
-    return [];
+    // FTS5 can throw on malformed queries — return empty results, but surface
+    // anything else so genuine DB errors aren't swallowed.
+    if (isFts5QueryError(err)) return [];
+    throw err;
   }
 }
 
