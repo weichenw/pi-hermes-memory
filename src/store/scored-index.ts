@@ -41,7 +41,7 @@ export function loadScoredIndex(memDir: string): ScoredIndex {
         version: 1,
         updatedAt: String(raw.updatedAt || new Date().toISOString()),
         items: (raw.items as unknown[])
-          .filter((it): it is Record<string, unknown> => it && typeof it === "object")
+          .filter((it): it is Record<string, unknown> => !!it && typeof it === "object")
           .map((it) => ({
           key: String(it.key || ""),
           text: String(it.text || ""),

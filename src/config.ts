@@ -17,6 +17,8 @@ import {
   DEFAULT_CONSOLIDATION_TIMEOUT_MS,
   DEFAULT_SESSION_RETENTION_DAYS,
   DEFAULT_MEMORY_RETENTION_DAYS,
+  DEFAULT_CORTEX_VAULT_PATH,
+  DEFAULT_CORTEX_SYNC_ENABLED,
 } from "./constants.js";
 
 import { normalizeConfiguredMemoryDir } from "./paths.js";
@@ -43,6 +45,8 @@ const DEFAULT_CONFIG: MemoryConfig = {
   consolidationTimeoutMs: DEFAULT_CONSOLIDATION_TIMEOUT_MS,
   sessionRetentionDays: DEFAULT_SESSION_RETENTION_DAYS,
   memoryRetentionDays: DEFAULT_MEMORY_RETENTION_DAYS,
+  cortexVaultPath: DEFAULT_CORTEX_VAULT_PATH,
+  cortexSyncEnabled: DEFAULT_CORTEX_SYNC_ENABLED,
 };
 
 export const DEFAULT_CONFIG_PATH = path.join(
@@ -96,6 +100,8 @@ function mergeConfig(base: MemoryConfig, parsed: Record<string, unknown>): Memor
     }
     config.memoryDomainKeywords = merged;
   }
+  if (typeof parsed.cortexVaultPath === "string") config.cortexVaultPath = parsed.cortexVaultPath;
+  if (typeof parsed.cortexSyncEnabled === "boolean") config.cortexSyncEnabled = parsed.cortexSyncEnabled;
   return config;
 }
 

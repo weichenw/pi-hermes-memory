@@ -4,6 +4,9 @@
  * See PLAN.md → "Hermes Source File Reference Map" for exact source lines.
  */
 
+import * as path from "node:path";
+import * as os from "node:os";
+
 // ─── Entry delimiter (same as Hermes) ───
 export const ENTRY_DELIMITER = "\n§\n";
 
@@ -18,6 +21,15 @@ export const DEFAULT_MEMORY_DOMAIN_KEYWORDS: Record<string, string[]> = {
   health: ["fitness", "workout", "diet", "gym", "running", "sleep", "calories", "protein", "fasting", "cardio", "steps"],
   work: ["project", "team", "deadline", "meeting", "client", "deploy", "sprint", "standup", "retro", "oncall", "production", "incident"],
 };
+
+// ─── Cortex bridge defaults ───
+export const DEFAULT_CORTEX_VAULT_PATH = path.join(
+  os.homedir(),
+  "Workspace",
+  "Obsidian",
+  "Cortex",
+);
+export const DEFAULT_CORTEX_SYNC_ENABLED = false;
 
 // ─── Learning loop defaults ───
 export const DEFAULT_PROJECT_CHAR_LIMIT = 5000;

@@ -11,7 +11,8 @@ import { MemoryStore } from "../store/memory-store.js";
 import { DatabaseManager } from "../store/db.js";
 import { addMemory } from "../store/sqlite-memory-store.js";
 import { MEMORY_TOOL_DESCRIPTION } from "../constants.js";
-import type { MemoryCategory } from "../types.js";
+import type { MemoryCategory, MemoryConfig } from "../types.js";
+import { syncToCortex } from "../cortex-sync.js";
 
 /**
  * Extract content-bearing keywords from text for domain matching.
@@ -72,6 +73,7 @@ export function registerMemoryTool(
   projectName: string,
   memoryDomains: string[] = [],
   memoryDomainKeywords: Record<string, string[]> = {},
+  config?: MemoryConfig,
 ): void {
   pi.registerTool({
     name: "memory",
@@ -171,6 +173,14 @@ export function registerMemoryTool(
               try {
                 addMemory(dbManager, content, target, rawTarget === "project" ? projectName : (domain || null), category as MemoryCategory || null, failure_reason || null, null, null);
               } catch { /* Best-effort SQLite mirror */ }
+              if (config?.cortexSyncEnabled && (target === "memory" || target === "user")) {
+                try {
+                  syncToCortex(config.cortexVaultPath!, content, target, domain ?? undefined);
+                  (result as any).message = ((result as any).message || "Entry added.") + " (synced to Cortex)";
+                } catch {
+                  // Best-effort: Cortex sync is optional
+                }
+              }
             }
           }
           break;

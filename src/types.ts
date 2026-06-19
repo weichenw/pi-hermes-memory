@@ -51,6 +51,10 @@ export interface MemoryConfig {
   memoryDomains?: string[];
   /** Keyword map for auto-inferring domains from memory content. Default: {} */
   memoryDomainKeywords?: Record<string, string[]>;
+  /** Path to the Cortex vault for durable fact sync. Default: ~/Workspace/Obsidian/Cortex */
+  cortexVaultPath?: string;
+  /** Sync high-confidence memory facts to Cortex. Default: false */
+  cortexSyncEnabled?: boolean;
 }
 
 export type MemoryCategory =
