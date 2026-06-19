@@ -471,6 +471,44 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     });
   });
 
+  // ─── getAllFailureEntries() tests ───
+
+  describe("getAllFailureEntries()", () => {
+    it("returns all failure entries with metadata stripped, ignoring the age filter", async () => {
+      const store = new MemoryStore(makeConfig());
+      await store.loadFromDisk();
+
+      // Write two failure entries with explicit metadata. The old one has
+      // created=2020-01-01 so getFailureEntries() (default 7-day window) drops it,
+      // but getAllFailureEntries() must keep it for consolidation.
+      const oldEntry = `${TEST_MARKER} old failure <!-- created=2020-01-01, last=2020-01-01, refs=1 -->`;
+      const recentDate = new Date().toISOString().split("T")[0];
+      const recentEntry = `${TEST_MARKER} recent failure <!-- created=${recentDate}, last=${recentDate}, refs=1 -->`;
+      await writeRaw(failurePath, [oldEntry, recentEntry].join(ENTRY_DELIMITER));
+      await store.loadFromDisk();
+
+      // getFailureEntries() defaults to a 7-day window and should drop the old entry.
+      const recent = store.getFailureEntries();
+      assert.ok(recent.some((e) => e.includes(`${TEST_MARKER} recent failure`)));
+      assert.ok(!recent.some((e) => e.includes(`${TEST_MARKER} old failure`)),
+        "getFailureEntries() should filter out the old entry");
+
+      // getAllFailureEntries() must return BOTH regardless of age, metadata stripped.
+      const all = store.getAllFailureEntries();
+      assert.equal(all.length, 2);
+      assert.ok(all.some((e) => e.includes(`${TEST_MARKER} old failure`)));
+      assert.ok(all.some((e) => e.includes(`${TEST_MARKER} recent failure`)));
+      // Metadata comments must be stripped from the returned text.
+      assert.ok(!all.some((e) => e.includes("created=")));
+    });
+
+    it("returns [] when there are no failure entries", async () => {
+      const store = new MemoryStore(makeConfig());
+      await store.loadFromDisk();
+      assert.deepEqual(store.getAllFailureEntries(), []);
+    });
+  });
+
   // ─── loadFromDisk() tests ───
 
   describe("loadFromDisk()", () => {

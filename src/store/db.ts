@@ -33,8 +33,13 @@ export class DatabaseManager {
 
     const db = new Database(this.dbPath);
 
-    // Enable WAL mode for concurrent reads
+    // Enable WAL mode for concurrent reads, but cap growth so the -wal file
+    // does not bloat unbounded across sessions. wal_autocheckpoint = 100
+    // checkpoints roughly every ~400 KB of WAL; journal_size_limit caps the
+    // WAL file at 5 MB. close() runs wal_checkpoint(TRUNCATE) to reclaim space.
     db.pragma('journal_mode = WAL');
+    db.pragma('wal_autocheckpoint = 100');
+    db.pragma('journal_size_limit = 5242880');
     db.pragma('foreign_keys = ON');
 
     // Create tables and triggers
@@ -86,10 +91,13 @@ export class DatabaseManager {
   }
 
   /**
-   * Close the database connection.
+   * Close the database connection. Runs wal_checkpoint(TRUNCATE) first so the
+   * -wal file is reclaimed to zero bytes instead of lingering at its
+   * high-water mark.
    */
   close(): void {
     if (this.db) {
+      try { this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch { /* best effort */ }
       this.db.close();
       this.db = null;
     }

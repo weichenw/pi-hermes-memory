@@ -142,7 +142,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   // ── 3. Register the memory tool (with project store + domain inference) ──
-  registerMemoryTool(pi, store, projectStore, dbManager, projectName, config.memoryDomains ?? [], config.memoryDomainKeywords ?? {});
+  registerMemoryTool(pi, store, projectStore, dbManager, projectName, config.memoryDomains ?? [], config.memoryDomainKeywords ?? {}, config);
 
   // ── 4. Register the skill tool ──
   registerSkillTool(pi, skillStore);
@@ -183,7 +183,17 @@ export default function (pi: ExtensionAPI) {
   registerMemorySearchTool(pi, dbManager);
   registerIndexSessionsCommand(pi);
 
-  // ── 12. Auto-index session on shutdown ──
+  // ── 12. Auto-index session on shutdown, then close the DB ──
+  // Registered last so this runs after the session-flush shutdown handler and
+  // is the final DB activity. Closing here truncates the WAL via
+  // PRAGMA wal_checkpoint(TRUNCATE); without it the WAL only grows to its
+  // high-water mark and is never reclaimed across sessions.
+  //
+  // Ordering is safe: Pi's ExtensionRunner.emit() runs same-extension handlers
+  // sequentially in registration order and awaits each one, so the flush above
+  // fully completes before close() runs. WARNING: do not register another
+  // DB-writing session_shutdown handler after this block — it would run after
+  // close() and silently no-op.
   pi.on("session_shutdown", async (_event, ctx) => {
     try {
       const sessionFile = ctx.sessionManager.getSessionFile();
@@ -195,6 +205,8 @@ export default function (pi: ExtensionAPI) {
       }
     } catch {
       // Silent fail — don't block shutdown
+    } finally {
+      try { dbManager.close(); } catch { /* best effort — never block shutdown */ }
     }
   });
 }

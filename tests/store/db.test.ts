@@ -192,6 +192,43 @@ describe('DatabaseManager', () => {
       const result = db.pragma('journal_mode', { simple: true }) as string;
       assert.strictEqual(result, 'wal');
     });
+
+    it('should set wal_autocheckpoint to cap WAL growth', () => {
+      const db = dbManager.getDb();
+      const result = db.pragma('wal_autocheckpoint', { simple: true }) as number;
+      assert.strictEqual(result, 100, 'wal_autocheckpoint should be 100 pages');
+    });
+
+    it('should set journal_size_limit to cap the WAL file size', () => {
+      const db = dbManager.getDb();
+      const result = db.pragma('journal_size_limit', { simple: true }) as number;
+      assert.strictEqual(result, 5242880, 'journal_size_limit should be 5 MiB');
+    });
+
+    it('should truncate the WAL to zero bytes on close', () => {
+      const db = dbManager.getDb();
+      // Write enough rows to grow the WAL past a trivial size.
+      const insert = db.prepare(
+        'INSERT INTO memories (project, target, content, created, last_referenced) VALUES (?, ?, ?, ?, ?)'
+      );
+      for (let i = 0; i > 200; i++) {
+        insert.run(null, 'memory', `entry ${i} `.repeat(20), '2026-06-19', '2026-06-19');
+      }
+      // Force a checkpoint so the WAL has content, then close (which runs
+      // wal_checkpoint(TRUNCATE)).
+      db.pragma('wal_checkpoint(PASSIVE)');
+
+      const walPath = dbManager.getPath() + '-wal';
+      assert.ok(fs.existsSync(walPath), 'WAL file should exist after writes');
+      assert.ok(fs.statSync(walPath).size > 0, 'WAL should have grown from the inserts');
+
+      dbManager.close();
+
+      // After close, the WAL must be truncated to zero bytes (or absent).
+      const walExists = fs.existsSync(walPath);
+      const walSize = walExists ? fs.statSync(walPath).size : 0;
+      assert.strictEqual(walSize, 0, `WAL should be 0 bytes after close, got ${walSize}`);
+    });
   });
 
   describe('foreign keys', () => {

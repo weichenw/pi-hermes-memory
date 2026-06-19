@@ -30,6 +30,7 @@ function createMockPi(execReturn?: { code: number; stdout: string; stderr: strin
 const mockStore = {
   getMemoryEntries: () => ["old entry 1", "old entry 2"],
   getUserEntries: () => ["user fact 1"],
+  getAllFailureEntries: () => ["[failure] old crash", "[failure] retry bug"],
   loadFromDisk: async () => {},
 } as any;
 
@@ -104,6 +105,7 @@ describe("triggerConsolidation", () => {
     const emptyStore = {
       getMemoryEntries: () => [],
       getUserEntries: () => [],
+      getAllFailureEntries: () => [],
       loadFromDisk: async () => {},
     } as any;
 
@@ -112,6 +114,50 @@ describe("triggerConsolidation", () => {
 
     const prompt = execCalls[0][1][execCalls[0][1].length - 1];
     assert.ok(prompt.includes("(empty)"), "prompt should show (empty) for empty entries");
+  });
+
+  it("includes failure entries when target is 'failure'", async () => {
+    const failureStore = {
+      getMemoryEntries: () => [],
+      getUserEntries: () => [],
+      getAllFailureEntries: () => ["[failure] old crash", "[failure] retry bug"],
+      loadFromDisk: async () => {},
+    } as any;
+
+    const pi = createMockPi();
+    await triggerConsolidation(pi, failureStore, "failure");
+
+    const prompt = execCalls[0][1][execCalls[0][1].length - 1];
+    assert.ok(prompt.includes("[failure] old crash"), "prompt should include failure entries");
+    assert.ok(prompt.includes("[failure] retry bug"), "prompt should include all failure entries");
+    assert.ok(prompt.includes("Failure Memory"), "prompt should label the target as Failure Memory");
+    assert.ok(prompt.includes("Target: 'failure'"), "prompt should use target='failure'");
+  });
+
+  it("uses getAllFailureEntries (not the age-filtered getFailureEntries) for failure target", async () => {
+    // Consolidation must see the FULL failure file, including old entries that
+    // the 7-day injection filter would drop — otherwise the file never shrinks.
+    let calls: string[] = [];
+    const failureStore = {
+      getMemoryEntries: () => [],
+      getUserEntries: () => [],
+      getAllFailureEntries: () => {
+        calls.push("getAllFailureEntries");
+        return ["[failure] stale", "[failure] recent"];
+      },
+      // getFailureEntries must NOT be called by consolidation
+      getFailureEntries: () => { calls.push("getFailureEntries"); return ["[failure] recent"]; },
+      loadFromDisk: async () => {},
+    } as any;
+
+    const pi = createMockPi();
+    await triggerConsolidation(pi, failureStore, "failure");
+
+    assert.ok(calls.includes("getAllFailureEntries"), "should call getAllFailureEntries");
+    assert.ok(!calls.includes("getFailureEntries"), "should NOT call the age-filtered getFailureEntries");
+
+    const prompt = execCalls[0][1][execCalls[0][1].length - 1];
+    assert.ok(prompt.includes("[failure] stale"), "prompt should include the stale entry the age filter would drop");
   });
 });
 
@@ -279,13 +325,18 @@ describe("registerConsolidateCommand", () => {
       ui: { notify: (message: string) => { notification = message; } },
     });
 
-    assert.strictEqual(execCalls.length, 3, "should consolidate memory, user, and project stores");
-    const projectPrompt = execCalls[2][1][execCalls[2][1].length - 1];
+    // memory, user, failure, project = 4 consolidation calls
+    assert.strictEqual(execCalls.length, 4, "should consolidate memory, user, failure, and project stores");
+    const projectPrompt = execCalls[3][1][execCalls[3][1].length - 1];
     assert.ok(projectPrompt.includes("Project Memory"), "project prompt should be labeled");
     assert.ok(projectPrompt.includes("project fact"), "project prompt should include project entries");
     assert.ok(projectPrompt.includes("Target: 'project'"), "project prompt should use target='project'");
     assert.ok(projectReloaded, "project store should reload after consolidation");
     assert.ok(notification.includes("project:demo-project: ✅ consolidated"), "notification should include project result");
+    // The failure target should also appear in the notification and use the failure prompt label.
+    assert.ok(notification.includes("failure: ✅ consolidated"), "notification should include failure result");
+    const failurePrompt = execCalls[2][1][execCalls[2][1].length - 1];
+    assert.ok(failurePrompt.includes("Failure Memory"), "failure prompt should be labeled Failure Memory");
   });
 
   it("passes custom timeout to triggerConsolidation", async () => {
@@ -308,7 +359,8 @@ describe("registerConsolidateCommand", () => {
       ui: { notify: () => {} },
     });
 
-    assert.strictEqual(execCalls.length, 2, "should consolidate memory and user");
+    // memory, user, failure = 3 consolidation calls
+    assert.strictEqual(execCalls.length, 3, "should consolidate memory, user, and failure");
     // pi.exec args: ["pi", ["-p", "--no-session", prompt], { signal, timeout }]
     assert.strictEqual(execCalls[0][2].timeout, 120000, "should use custom timeout");
   });
