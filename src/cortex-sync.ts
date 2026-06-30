@@ -37,8 +37,10 @@ export function syncToCortex(
   fact: string,
   target: "memory" | "user" | "failure",
   domain?: string,
-): void {
-  if (!fs.existsSync(vaultPath)) return;
+): { pagePath: string; isNew: boolean; concept: string } {
+  if (!fs.existsSync(vaultPath)) {
+    throw new Error(`Cortex vault not found: ${vaultPath}`);
+  }
 
   const type = target === "user" ? "person" : "concept";
   const dir = path.join(vaultPath, "20-Wiki", `${type}s`);
@@ -48,12 +50,9 @@ export function syncToCortex(
   const pagePath = path.join(dir, `${slugify(concept)}.md`);
   const date = today();
   const note = `## Memory note (${date})\n\n${fact}\n\nConfidence: medium`;
+  const isNew = !fs.existsSync(pagePath);
 
-  if (fs.existsSync(pagePath)) {
-    const existing = fs.readFileSync(pagePath, "utf-8");
-    const updated = `${existing}\n\n${note}`;
-    fs.writeFileSync(pagePath, updated, "utf-8");
-  } else {
+  if (isNew) {
     const fm = {
       type,
       created: date,
@@ -68,5 +67,11 @@ export function syncToCortex(
       `${formatFrontmatter(fm)}\n\n# ${concept}\n\n${note}`,
       "utf-8",
     );
+  } else {
+    const existing = fs.readFileSync(pagePath, "utf-8");
+    const updated = `${existing}\n\n${note}`;
+    fs.writeFileSync(pagePath, updated, "utf-8");
   }
+
+  return { pagePath, isNew, concept };
 }

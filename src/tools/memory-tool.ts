@@ -6,6 +6,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import * as path from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { MemoryStore } from "../store/memory-store.js";
 import { DatabaseManager } from "../store/db.js";
@@ -175,10 +176,15 @@ export function registerMemoryTool(
               } catch { /* Best-effort SQLite mirror */ }
               if (config?.cortexSyncEnabled && (target === "memory" || target === "user")) {
                 try {
-                  syncToCortex(config.cortexVaultPath!, content, target, domain ?? undefined);
+                  const { pagePath, isNew, concept } = syncToCortex(config.cortexVaultPath!, content, target, domain ?? undefined);
+                  const pageName = path.basename(pagePath, ".md");
                   (result as any).message = ((result as any).message || "Entry added.") + " (synced to Cortex)";
-                } catch {
-                  // Best-effort: Cortex sync is optional
+                  ctx.ui?.notify?.(
+                    `Synced ${target === "user" ? "user profile" : "memory"} note to Cortex: ${pageName}${isNew ? " (new page)" : ""}`,
+                    "info",
+                  );
+                } catch (err) {
+                  ctx.ui?.notify?.(`Cortex sync failed: ${(err as Error).message}`, "warning");
                 }
               }
             }
